@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises';
 import writeFile from 'write-file-atomic';
 import { join } from 'path';
-import type { AuthenticationCreds, SignalDataTypeMap } from '@whiskeysockets/baileys';
+import type { AuthenticationCreds, SignalDataTypeMap, SignalKeyStore } from '@whiskeysockets/baileys';
 
 /**
  * Custom auth state implementation using atomic file writes
@@ -28,13 +28,13 @@ export async function useJsonAuthState(dataDir: string) {
   }
 
   // Load existing keys or initialize empty
-  let keys: SignalDataTypeMap;
+  let keysData: SignalDataTypeMap = {} as SignalDataTypeMap;
   try {
-    const keysData = await readFile(keysPath, 'utf-8');
-    keys = JSON.parse(keysData);
+    const keysJson = await readFile(keysPath, 'utf-8');
+    keysData = JSON.parse(keysJson);
   } catch (error) {
     // First run - no keys exist yet
-    keys = {} as SignalDataTypeMap;
+    keysData = {} as SignalDataTypeMap;
   }
 
   /**
@@ -50,7 +50,41 @@ export async function useJsonAuthState(dataDir: string) {
    * Uses write-file-atomic to prevent corruption on process kill
    */
   const saveKeys = async (): Promise<void> => {
-    await writeFile(keysPath, JSON.stringify(keys, null, 2), 'utf-8');
+    await writeFile(keysPath, JSON.stringify(keysData, null, 2), 'utf-8');
+  };
+
+  // Create SignalKeyStore interface wrapper around the data
+  const keys: SignalKeyStore = {
+    get: async (type, ids) => {
+      const data: { [id: string]: any } = {};
+      const typeData = (keysData[type] as any) || {};
+      for (const id of ids) {
+        let value = (typeData as any)[id];
+        if (value) {
+          data[id] = value;
+        }
+      }
+      return data;
+    },
+    set: async (data) => {
+      for (const type in data) {
+        if (!keysData[type as keyof SignalDataTypeMap]) {
+          keysData[type as keyof SignalDataTypeMap] = {} as any;
+        }
+        const typeData = data[type as keyof SignalDataTypeMap];
+        if (typeData) {
+          for (const id in typeData) {
+            const value = typeData[id];
+            if (value === null) {
+              delete (keysData[type as keyof SignalDataTypeMap] as any)[id];
+            } else {
+              (keysData[type as keyof SignalDataTypeMap] as any)[id] = value;
+            }
+          }
+        }
+      }
+      await saveKeys();
+    }
   };
 
   return {
@@ -58,7 +92,6 @@ export async function useJsonAuthState(dataDir: string) {
       creds,
       keys
     },
-    saveCreds,
-    saveKeys
+    saveCreds
   };
 }
