@@ -18,11 +18,18 @@ The bot must reliably open registration at exactly 12:00 on Friday, accurately t
 
 - [ ] Bot connects to WhatsApp via Baileys library with persistent session
 - [ ] Bot operates in two WhatsApp groups: managers (Group 1) and players (Group 2)
-- [ ] On Tuesday, when an admin tags the bot in Group 1 with "תרשום אותי" (or similar), the bot builds the Saturday template with correct date
+- [ ] Admin command window is open from Saturday 11:00 PM (after game) until 10 minutes before Friday registration (11:49 AM)
+- [ ] During the command window, admins can tag the bot in Group 1 to modify the template
+- [ ] When an admin tags the bot with "תרשום אותי" (or similar), the bot adds them to the template
+- [ ] When an admin tags the bot with "תוריד אותי" (or similar), the bot removes them from the template
 - [ ] Template follows fixed format: 8v8, 24 spots, warmup/start times, equipment person, laundry person (spot 24)
-- [ ] Admins can assign equipment person (ציוד) and laundry person (כביסה) via bot commands in Group 1
+- [ ] Admins can assign equipment person (ציוד) via bot command — must provide full name, bot responds "תרשום שם מלא של מי שמביא ציוד" if missing
+- [ ] Admins can assign laundry person (כביסה) via bot command — must provide full name, bot responds "תרשום שם מלא של מי שעושה כביסה" if missing
+- [ ] Laundry person is always locked to spot #24 with (כביסה) tag
+- [ ] If laundry person cancels, someone from the waiting list replaces them at spot 24 and inherits the (כביסה) tag
 - [ ] Admins can change warmup time (חימום) and start time via bot commands in Group 1
 - [ ] Admins can add/remove other admins via bot commands in Group 1
+- [ ] All admin role assignments (laundry, equipment) require full names — bot enforces this
 - [ ] On Friday at 11:59 the bot posts the template in Group 2
 - [ ] On Friday at 12:00 the bot opens Group 2 (changes from admin-only to everyone can send)
 - [ ] From 12:00-12:03 the bot collects all registration messages
@@ -76,7 +83,7 @@ The bot must reliably open registration at exactly 12:00 on Friday, accurately t
 - **Language**: Node.js/TypeScript — Baileys is a Node.js library
 - **Hosting**: Needs cheap hosting solution (small VPS)
 - **Format**: Fixed 8v8, 24 player spots + waiting list
-- **Schedule**: Weekly cycle — Tuesday template prep, Friday 11:59 post, 12:00 open, game Saturday night
+- **Schedule**: Weekly cycle — admin commands from Sat 11PM to Fri 11:49AM, Friday 11:59 post, 12:00 open, game Saturday night
 
 ## Key Decisions
 
