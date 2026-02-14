@@ -34,10 +34,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Bot survives kill -9 restart without requiring QR re-scan (session persists)
   4. Bot handles unexpected disconnections and reconnects automatically
   5. Unhandled errors don't crash the process (global error handler active)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] TBD during planning
+- [ ] 01-01-PLAN.md — Project setup and custom auth state implementation
+- [ ] 01-02-PLAN.md — Socket connection with reconnection logic and verification
 
 ### Phase 2: Data Layer & State Management
 **Goal**: Bot can store and retrieve state from JSON files with proper timezone handling
@@ -173,7 +174,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Connection | 0/TBD | Not started | - |
+| 1. Foundation & Connection | 0/2 | Planned | - |
 | 2. Data Layer & State Management | 0/TBD | Not started | - |
 | 3. Template System | 0/TBD | Not started | - |
 | 4. Admin Command Processing | 0/TBD | Not started | - |
