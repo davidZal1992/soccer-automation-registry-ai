@@ -113,57 +113,57 @@
 |-------------|-------|--------|
 | INFRA-01 | Phase 1 | Pending |
 | INFRA-02 | Phase 1 | Pending |
-| INFRA-03 | Phase 1 | Pending |
-| INFRA-04 | Phase 1 | Pending |
 | INFRA-05 | Phase 1 | Pending |
 | INFRA-06 | Phase 1 | Pending |
-| INFRA-07 | Phase 1 | Pending |
-| ADMIN-01 | Phase 2 | Pending |
-| ADMIN-02 | Phase 2 | Pending |
-| ADMIN-03 | Phase 2 | Pending |
-| ADMIN-04 | Phase 2 | Pending |
-| ADMIN-05 | Phase 2 | Pending |
-| ADMIN-06 | Phase 2 | Pending |
-| ADMIN-07 | Phase 2 | Pending |
-| ADMIN-08 | Phase 2 | Pending |
-| ADMIN-09 | Phase 2 | Pending |
-| ADMIN-10 | Phase 2 | Pending |
-| ADMIN-11 | Phase 2 | Pending |
-| ADMIN-12 | Phase 2 | Pending |
-| ADMIN-13 | Phase 2 | Pending |
-| ADMIN-14 | Phase 2 | Pending |
-| TMPL-01 | Phase 2 | Pending |
-| TMPL-02 | Phase 2 | Pending |
-| TMPL-03 | Phase 2 | Pending |
-| TMPL-04 | Phase 2 | Pending |
-| TMPL-05 | Phase 2 | Pending |
-| TMPL-06 | Phase 2 | Pending |
-| REG-01 | Phase 3 | Pending |
-| REG-02 | Phase 3 | Pending |
-| REG-03 | Phase 3 | Pending |
-| REG-04 | Phase 3 | Pending |
-| REG-05 | Phase 3 | Pending |
-| REG-06 | Phase 3 | Pending |
-| REG-07 | Phase 3 | Pending |
-| REG-08 | Phase 3 | Pending |
-| REG-09 | Phase 3 | Pending |
-| REG-10 | Phase 3 | Pending |
-| CNCL-01 | Phase 3 | Pending |
-| CNCL-02 | Phase 3 | Pending |
-| CNCL-03 | Phase 3 | Pending |
-| CNCL-04 | Phase 3 | Pending |
-| CNCL-05 | Phase 3 | Pending |
-| LLM-01 | Phase 3 | Pending |
-| LLM-02 | Phase 3 | Pending |
-| LLM-03 | Phase 3 | Pending |
-| LLM-04 | Phase 3 | Pending |
-| CTRL-01 | Phase 4 | Pending |
-| CTRL-02 | Phase 4 | Pending |
-| CTRL-03 | Phase 4 | Pending |
-| CTRL-04 | Phase 4 | Pending |
-| CTRL-05 | Phase 4 | Pending |
-| CTRL-06 | Phase 4 | Pending |
-| CTRL-07 | Phase 4 | Pending |
+| INFRA-03 | Phase 2 | Pending |
+| INFRA-04 | Phase 2 | Pending |
+| INFRA-07 | Phase 2 | Pending |
+| TMPL-01 | Phase 3 | Pending |
+| TMPL-02 | Phase 3 | Pending |
+| TMPL-03 | Phase 3 | Pending |
+| TMPL-04 | Phase 3 | Pending |
+| TMPL-05 | Phase 3 | Pending |
+| TMPL-06 | Phase 3 | Pending |
+| ADMIN-01 | Phase 4 | Pending |
+| ADMIN-02 | Phase 4 | Pending |
+| ADMIN-03 | Phase 4 | Pending |
+| ADMIN-04 | Phase 4 | Pending |
+| ADMIN-09 | Phase 4 | Pending |
+| ADMIN-10 | Phase 4 | Pending |
+| ADMIN-11 | Phase 4 | Pending |
+| ADMIN-05 | Phase 5 | Pending |
+| ADMIN-06 | Phase 5 | Pending |
+| ADMIN-07 | Phase 5 | Pending |
+| ADMIN-08 | Phase 5 | Pending |
+| ADMIN-12 | Phase 5 | Pending |
+| ADMIN-13 | Phase 5 | Pending |
+| ADMIN-14 | Phase 5 | Pending |
+| REG-01 | Phase 6 | Pending |
+| REG-02 | Phase 6 | Pending |
+| REG-03 | Phase 6 | Pending |
+| REG-05 | Phase 6 | Pending |
+| REG-07 | Phase 6 | Pending |
+| REG-08 | Phase 6 | Pending |
+| REG-10 | Phase 6 | Pending |
+| CNCL-01 | Phase 7 | Pending |
+| CNCL-02 | Phase 7 | Pending |
+| CNCL-03 | Phase 7 | Pending |
+| CNCL-04 | Phase 7 | Pending |
+| CNCL-05 | Phase 7 | Pending |
+| REG-09 | Phase 7 | Pending |
+| LLM-01 | Phase 8 | Pending |
+| LLM-02 | Phase 8 | Pending |
+| LLM-03 | Phase 8 | Pending |
+| LLM-04 | Phase 8 | Pending |
+| REG-04 | Phase 8 | Pending |
+| REG-06 | Phase 8 | Pending |
+| CTRL-01 | Phase 9 | Pending |
+| CTRL-02 | Phase 9 | Pending |
+| CTRL-03 | Phase 9 | Pending |
+| CTRL-04 | Phase 9 | Pending |
+| CTRL-05 | Phase 9 | Pending |
+| CTRL-06 | Phase 9 | Pending |
+| CTRL-07 | Phase 9 | Pending |
 
 **Coverage:**
 - v1 requirements: 47 total
@@ -172,4 +172,4 @@
 
 ---
 *Requirements defined: 2026-02-14*
-*Last updated: 2026-02-14 after initial definition*
+*Last updated: 2026-02-14 after roadmap creation*
