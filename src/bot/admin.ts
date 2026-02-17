@@ -126,6 +126,13 @@ export async function executeAdminCommand(
         await sock.sendMessage(chatJid, { text: 'צריך שם מלא (שם פרטי + משפחה) לציוד' });
         return;
       }
+      // Remove equipment flag from previous holder
+      for (const s of template.slots) {
+        if (s?.isEquipment) s.isEquipment = false;
+      }
+      for (const w of template.waitingList) {
+        if (w.isEquipment) w.isEquipment = false;
+      }
       // Find player by name in slots or waiting list
       const eqSlotIdx = template.slots.findIndex(
         s => s && s.name === command.name,
