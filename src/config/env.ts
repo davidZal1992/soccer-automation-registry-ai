@@ -5,12 +5,15 @@ interface Config {
     managers: string;
     players: string;
   };
+  anthropicApiKey: string;
+  initialAdminJid: string;
+  initialAdminName: string;
   nodeEnv: string;
   logLevel: string;
 }
 
 // Validate required environment variables
-const requiredVars = ['GROUP_1_JID', 'GROUP_2_JID'];
+const requiredVars = ['GROUP_1_JID', 'GROUP_2_JID', 'ANTHROPIC_API_KEY'];
 const missing = requiredVars.filter(v => !process.env[v]);
 
 if (missing.length > 0) {
@@ -22,6 +25,9 @@ export const config: Config = {
     managers: process.env.GROUP_1_JID!,
     players: process.env.GROUP_2_JID!,
   },
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY!,
+  initialAdminJid: process.env.INITIAL_ADMIN_JID || '',
+  initialAdminName: process.env.INITIAL_ADMIN_NAME || '',
   nodeEnv: process.env.NODE_ENV || 'production',
   logLevel: process.env.LOG_LEVEL || 'info',
 };

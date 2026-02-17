@@ -1,6 +1,7 @@
-import { readFile } from 'fs/promises';
+import { readFile, mkdir } from 'fs/promises';
 import writeFile from 'write-file-atomic';
 import { join } from 'path';
+import { initAuthCreds, BufferJSON } from '@whiskeysockets/baileys';
 import type { AuthenticationCreds, SignalDataTypeMap, SignalKeyStore } from '@whiskeysockets/baileys';
 
 /**
@@ -14,24 +15,26 @@ import type { AuthenticationCreds, SignalDataTypeMap, SignalKeyStore } from '@wh
  * @returns Auth state object compatible with Baileys makeWASocket
  */
 export async function useJsonAuthState(dataDir: string) {
+  await mkdir(dataDir, { recursive: true });
+
   const credsPath = join(dataDir, 'creds.json');
   const keysPath = join(dataDir, 'keys.json');
 
-  // Load existing credentials or initialize empty
+  // Load existing credentials or generate fresh ones with proper crypto keys
   let creds: AuthenticationCreds;
   try {
     const credsData = await readFile(credsPath, 'utf-8');
-    creds = JSON.parse(credsData);
+    creds = JSON.parse(credsData, BufferJSON.reviver);
   } catch (error) {
-    // First run - no credentials exist yet
-    creds = {} as AuthenticationCreds;
+    // First run - generate proper credentials (noise keypair, signal keys, etc.)
+    creds = initAuthCreds();
   }
 
   // Load existing keys or initialize empty
   let keysData: SignalDataTypeMap = {} as SignalDataTypeMap;
   try {
     const keysJson = await readFile(keysPath, 'utf-8');
-    keysData = JSON.parse(keysJson);
+    keysData = JSON.parse(keysJson, BufferJSON.reviver);
   } catch (error) {
     // First run - no keys exist yet
     keysData = {} as SignalDataTypeMap;
@@ -42,7 +45,7 @@ export async function useJsonAuthState(dataDir: string) {
    * Uses write-file-atomic to prevent corruption on process kill
    */
   const saveCreds = async (): Promise<void> => {
-    await writeFile(credsPath, JSON.stringify(creds, null, 2), 'utf-8');
+    await writeFile(credsPath, JSON.stringify(creds, BufferJSON.replacer, 2), 'utf-8');
   };
 
   /**
@@ -50,7 +53,7 @@ export async function useJsonAuthState(dataDir: string) {
    * Uses write-file-atomic to prevent corruption on process kill
    */
   const saveKeys = async (): Promise<void> => {
-    await writeFile(keysPath, JSON.stringify(keysData, null, 2), 'utf-8');
+    await writeFile(keysPath, JSON.stringify(keysData, BufferJSON.replacer, 2), 'utf-8');
   };
 
   // Create SignalKeyStore interface wrapper around the data

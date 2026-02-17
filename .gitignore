@@ -8,8 +8,8 @@ dist/
 logs/
 *.log
 
-# Session data
-data/auth/
+# Runtime data (auth, state, templates)
+data/
 
 # Environment
 .env
@@ -25,6 +25,5 @@ data/auth/
 .DS_Store
 Thumbs.db
 
-# Keep planning and GSD tooling
-!.planning/
-!.claude/
+# Claude Code local config
+.claude/

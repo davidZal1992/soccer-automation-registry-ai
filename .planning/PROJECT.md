@@ -23,7 +23,8 @@ The bot must reliably open registration at exactly 12:00 on Friday, accurately t
 - [ ] When an admin tags the bot with "תרשום אותי" (or similar), the bot adds them to the template
 - [ ] When an admin tags the bot with "תוריד אותי" (or similar), the bot removes them from the template
 - [ ] Template follows fixed format: 8v8, 24 spots, warmup/start times, equipment person, laundry person (spot 24)
-- [ ] Admins can assign equipment person (ציוד) via bot command — must provide full name, bot responds "תרשום שם מלא של מי שמביא ציוד" if missing
+- [ ] Admins can assign equipment person (ציוד) via bot command — must provide fu
+- ll name, bot responds "תרשום שם מלא של מי שמביא ציוד" if missing
 - [ ] Admins can assign laundry person (כביסה) via bot command — must provide full name, bot responds "תרשום שם מלא של מי שעושה כביסה" if missing
 - [ ] Laundry person is always locked to spot #24 with (כביסה) tag
 - [ ] If laundry person cancels, someone from the waiting list replaces them at spot 24 and inherits the (כביסה) tag
