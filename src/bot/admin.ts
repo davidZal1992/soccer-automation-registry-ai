@@ -127,18 +127,23 @@ export async function executeAdminCommand(
         return;
       }
       // Find player by name in slots or waiting list
-      const slotIdx = template.slots.findIndex(
+      const eqSlotIdx = template.slots.findIndex(
         s => s && s.name === command.name,
       );
-      if (slotIdx !== -1) {
-        template.slots[slotIdx]!.isEquipment = true;
+      if (eqSlotIdx !== -1) {
+        template.slots[eqSlotIdx]!.isEquipment = true;
       } else {
-        const waitIdx = template.waitingList.findIndex(w => w.name === command.name);
-        if (waitIdx !== -1) {
-          template.waitingList[waitIdx].isEquipment = true;
+        const eqWaitIdx = template.waitingList.findIndex(w => w.name === command.name);
+        if (eqWaitIdx !== -1) {
+          template.waitingList[eqWaitIdx].isEquipment = true;
         } else {
-          await sock.sendMessage(chatJid, { text: `${command.name} לא נמצא ברשימה` });
-          return;
+          // Player not registered yet — add them with equipment flag
+          addPlayerToTemplate(template, {
+            name: command.name,
+            userId: '',
+            isLaundry: false,
+            isEquipment: true,
+          });
         }
       }
       break;
@@ -197,8 +202,27 @@ export async function executeAdminCommand(
         }
       }
       if (!found) {
-        await sock.sendMessage(chatJid, { text: `${command.name} לא נמצא ברשימה` });
-        return;
+        // Player not registered yet — add them directly to slot 24 with laundry flag
+        const newPlayer: PlayerSlot = {
+          name: command.name,
+          userId: '',
+          isLaundry: true,
+          isEquipment: false,
+        };
+        if (template.slots[23]) {
+          const displaced = template.slots[23];
+          displaced.isLaundry = false;
+          template.slots[23] = newPlayer;
+          const emptySlot = template.slots.findIndex(s => s === null);
+          if (emptySlot !== -1) {
+            template.slots[emptySlot] = displaced;
+          } else {
+            template.waitingList.push(displaced);
+          }
+        } else {
+          template.slots[23] = newPlayer;
+        }
+        found = true;
       }
       break;
     }
