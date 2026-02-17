@@ -9,6 +9,7 @@ export function renderTemplate(state: TemplateState): string {
   lines.push('');
   lines.push(`חימום: ${state.warmupTime} ⏰`);
   lines.push(`התחלה: ${state.startTime} 🕘`);
+  lines.push(`התחייבות עד: ${state.commitmentTime} 🤝`);
   lines.push('');
 
   for (let i = 0; i < 24; i++) {

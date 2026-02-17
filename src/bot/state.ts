@@ -31,8 +31,9 @@ async function saveState<T>(filename: string, state: T): Promise<void> {
 export function createDefaultTemplate(): TemplateState {
   return {
     weekOf: getUpcomingSaturday(),
-    warmupTime: '20:30',
-    startTime: '21:00',
+    warmupTime: '19:15',
+    startTime: '19:30',
+    commitmentTime: '21:30',
     slots: new Array(24).fill(null),
     waitingList: [],
     registrationOpen: false,

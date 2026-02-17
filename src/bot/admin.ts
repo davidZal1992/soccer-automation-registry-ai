@@ -41,6 +41,10 @@ export function addPlayerToTemplate(
   // Find first empty slot
   const emptySlot = template.slots.findIndex(s => s === null);
   if (emptySlot !== -1) {
+    // Slot 24 (index 23) is laundry duty if no one else has it
+    if (emptySlot === 23 && !template.slots.some(s => s?.isLaundry)) {
+      player.isLaundry = true;
+    }
     template.slots[emptySlot] = player;
   } else {
     template.waitingList.push(player);

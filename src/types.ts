@@ -9,6 +9,7 @@ export interface TemplateState {
   weekOf: string; // ISO date of upcoming Saturday
   warmupTime: string; // "HH:MM"
   startTime: string; // "HH:MM"
+  commitmentTime: string; // "HH:MM"
   slots: (PlayerSlot | null)[]; // 24 slots (index 0-23)
   waitingList: PlayerSlot[];
   registrationOpen: boolean;
