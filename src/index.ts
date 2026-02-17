@@ -61,36 +61,13 @@ async function startSocket(): Promise<void> {
     if (connection === 'open') {
       logger.info('Connected to WhatsApp');
 
-      // Log group participants to help identify LIDs
-      try {
-        const g1 = await sock.groupMetadata(config.groupJids.managers);
-        logger.info(
-          { group: g1.subject, participants: g1.participants.map(p => ({ jid: p.id, admin: p.admin })) },
-          'Group 1 participants',
-        );
-      } catch (e) {
-        logger.warn({ error: e }, 'Could not fetch Group 1 metadata');
-      }
+      logger.info({ botJid: sock.user?.id, botLid: (sock.user as any)?.lid }, 'Bot identity');
 
       if (!schedulerSetup) {
         schedulerSetup = true;
         setupScheduler(() => currentSock!);
         logger.info('Bot fully connected and scheduler initialized');
       }
-
-      // --- TEST MODE: Remove after testing ---
-      if (process.env.TEST_GROUP_CLOSE === 'true') {
-        logger.info('🧪 Will close Group 2 in 2 minutes');
-        setTimeout(async () => {
-          try {
-            await sock.groupSettingUpdate(config.groupJids.players, 'announcement');
-            logger.info('🧪 Group 2 closed');
-          } catch (e) {
-            logger.error({ error: e }, '🧪 Failed to close Group 2');
-          }
-        }, 2 * 60 * 1000);
-      }
-      // --- END TEST MODE ---
     }
   });
 
