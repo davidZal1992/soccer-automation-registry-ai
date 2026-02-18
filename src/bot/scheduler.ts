@@ -100,16 +100,13 @@ export function setupScheduler(getSock: () => WASocket): void {
         logger.info('Sent last cancellations warning');
       }
 
-      // 15 min before warmup - close registration, lock group
+      // 15 min before warmup - close registration (group stays open)
       if (currentMinutes === warmupMinutes - 15) {
         template.registrationOpen = false;
         await saveTemplate(template);
-        await sock.groupSettingUpdate(config.groupJids.players, 'announcement');
         // Process any remaining messages
         await processHourlyRefresh(sock);
-        const rendered = renderTemplate(template);
-        await sendTemplateToGroup2(sock, rendered);
-        logger.info('Closed registration and locked Group 2');
+        logger.info('Closed registration');
       }
     } catch (error) {
       logger.error({ error }, 'Failed Saturday pre-game check');
