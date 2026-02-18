@@ -90,29 +90,31 @@ export function setupScheduler(getSock: () => WASocket): void {
       const israelNow = new Date(now.toLocaleString('en-US', { timeZone: tz }));
 
       // Calculate target times in Israel timezone
-      const warning20 = new Date(israelNow);
-      warning20.setHours(warmH, warmM - 20, 0, 0);
+      // 30 min before warmup: warning message
+      const warningTime = new Date(israelNow);
+      warningTime.setHours(warmH, warmM - 30, 0, 0);
 
-      const closeReg = new Date(israelNow);
-      closeReg.setHours(warmH, warmM - 15, 0, 0);
+      // 25 min before warmup: close registration (5 min after warning)
+      const closeTime = new Date(israelNow);
+      closeTime.setHours(warmH, warmM - 25, 0, 0);
 
       // Convert to delays from now
-      const msUntilWarning = warning20.getTime() - israelNow.getTime();
-      const msUntilClose = closeReg.getTime() - israelNow.getTime();
+      const msUntilWarning = warningTime.getTime() - israelNow.getTime();
+      const msUntilClose = closeTime.getTime() - israelNow.getTime();
 
       if (msUntilWarning > 0) {
         setTimeout(async () => {
           try {
             const sock = getSock();
             await sock.sendMessage(config.groupJids.players, {
-              text: 'ביטולים אחרונים? ⏳',
+              text: 'קבוצות עוד 5 דקות, ביטולים אחרונים?',
             });
             logger.info('Sent last cancellations warning');
           } catch (error) {
             logger.error({ error }, 'Failed to send warning');
           }
         }, msUntilWarning);
-        logger.info({ time: `${warmH}:${String(warmM - 20).padStart(2, '0')}` }, 'Scheduled 20-min warning');
+        logger.info({ time: `${warmH}:${String(warmM - 30).padStart(2, '0')}` }, 'Scheduled 30-min warning');
       }
 
       if (msUntilClose > 0) {
@@ -128,7 +130,7 @@ export function setupScheduler(getSock: () => WASocket): void {
             logger.error({ error }, 'Failed to close registration');
           }
         }, msUntilClose);
-        logger.info({ time: `${warmH}:${String(warmM - 15).padStart(2, '0')}` }, 'Scheduled registration close');
+        logger.info({ time: `${warmH}:${String(warmM - 25).padStart(2, '0')}` }, 'Scheduled registration close');
       }
     } catch (error) {
       logger.error({ error }, 'Failed to schedule Saturday events');
