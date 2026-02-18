@@ -77,39 +77,61 @@ export function setupScheduler(getSock: () => WASocket): void {
     }
   }, { timezone: tz });
 
-  // Saturday - every minute check for pre-game warnings
-  cron.schedule('* * * * 6', async () => {
+  // Saturday - schedule pre-game warnings based on warmup time
+  // Runs once Saturday at 00:00 to set exact timeouts
+  cron.schedule('0 0 * * 6', async () => {
     try {
       const template = await loadTemplate();
       if (!template.registrationOpen) return;
 
-      const now = new Date();
-      const israelTime = new Date(now.toLocaleString('en-US', { timeZone: tz }));
-      const currentMinutes = israelTime.getHours() * 60 + israelTime.getMinutes();
-
       const [warmH, warmM] = template.warmupTime.split(':').map(Number);
-      const warmupMinutes = warmH * 60 + warmM;
 
-      const sock = getSock();
+      const now = new Date();
+      const israelNow = new Date(now.toLocaleString('en-US', { timeZone: tz }));
 
-      // 20 min before warmup
-      if (currentMinutes === warmupMinutes - 20) {
-        await sock.sendMessage(config.groupJids.players, {
-          text: 'ביטולים אחרונים? ⏳',
-        });
-        logger.info('Sent last cancellations warning');
+      // Calculate target times in Israel timezone
+      const warning20 = new Date(israelNow);
+      warning20.setHours(warmH, warmM - 20, 0, 0);
+
+      const closeReg = new Date(israelNow);
+      closeReg.setHours(warmH, warmM - 15, 0, 0);
+
+      // Convert to delays from now
+      const msUntilWarning = warning20.getTime() - israelNow.getTime();
+      const msUntilClose = closeReg.getTime() - israelNow.getTime();
+
+      if (msUntilWarning > 0) {
+        setTimeout(async () => {
+          try {
+            const sock = getSock();
+            await sock.sendMessage(config.groupJids.players, {
+              text: 'ביטולים אחרונים? ⏳',
+            });
+            logger.info('Sent last cancellations warning');
+          } catch (error) {
+            logger.error({ error }, 'Failed to send warning');
+          }
+        }, msUntilWarning);
+        logger.info({ time: `${warmH}:${String(warmM - 20).padStart(2, '0')}` }, 'Scheduled 20-min warning');
       }
 
-      // 15 min before warmup - close registration (group stays open)
-      if (currentMinutes === warmupMinutes - 15) {
-        template.registrationOpen = false;
-        await saveTemplate(template);
-        // Process any remaining messages
-        await processHourlyRefresh(sock);
-        logger.info('Closed registration');
+      if (msUntilClose > 0) {
+        setTimeout(async () => {
+          try {
+            const sock = getSock();
+            const t = await loadTemplate();
+            t.registrationOpen = false;
+            await saveTemplate(t);
+            await processHourlyRefresh(sock);
+            logger.info('Closed registration');
+          } catch (error) {
+            logger.error({ error }, 'Failed to close registration');
+          }
+        }, msUntilClose);
+        logger.info({ time: `${warmH}:${String(warmM - 15).padStart(2, '0')}` }, 'Scheduled registration close');
       }
     } catch (error) {
-      logger.error({ error }, 'Failed Saturday pre-game check');
+      logger.error({ error }, 'Failed to schedule Saturday events');
     }
   }, { timezone: tz });
 
