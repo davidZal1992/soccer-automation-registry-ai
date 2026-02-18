@@ -131,7 +131,13 @@ async function processMessages(
       // Always use sender's userId — never trust name from message
       if (!weekly.userIdMap[normalizedId]) continue; // not registered, nothing to cancel
       delete weekly.userIdMap[normalizedId];
-      removePlayerFromTemplate(template, normalizedId);
+      const { promoted } = removePlayerFromTemplate(template, normalizedId);
+      if (promoted?.userId) {
+        await sock.sendMessage(config.groupJids.players, {
+          text: `@${promoted.userId.replace(/@.*/, '')} נכנסת`,
+          mentions: [promoted.userId],
+        });
+      }
     }
   }
 

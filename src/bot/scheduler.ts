@@ -65,17 +65,6 @@ export function setupScheduler(getSock: () => WASocket): void {
     }
   }, { timezone: tz });
 
-  // Hourly refresh (every hour from 13:00 Friday through Saturday)
-  cron.schedule('0 * * * *', async () => {
-    try {
-      const template = await loadTemplate();
-      if (!template.registrationOpen) return;
-      const sock = getSock();
-      await processHourlyRefresh(sock);
-    } catch (error) {
-      logger.error({ error }, 'Failed hourly refresh');
-    }
-  }, { timezone: tz });
 
   // Saturday - schedule pre-game warnings based on warmup time
   // Runs once Saturday at 00:00 to set exact timeouts

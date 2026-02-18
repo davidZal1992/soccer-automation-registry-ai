@@ -54,7 +54,7 @@ export function addPlayerToTemplate(
 export function removePlayerFromTemplate(
   template: TemplateState,
   userId: string,
-): PlayerSlot | null {
+): { removed: PlayerSlot | null; promoted: PlayerSlot | null } {
   const normalized = normalizeJid(userId);
 
   // Check slots
@@ -64,8 +64,8 @@ export function removePlayerFromTemplate(
   if (slotIndex !== -1) {
     const removed = template.slots[slotIndex]!;
     template.slots[slotIndex] = null;
-    promoteFromWaitingList(template, removed.isLaundry ? slotIndex : slotIndex);
-    return removed;
+    const promoted = promoteFromWaitingList(template, slotIndex);
+    return { removed, promoted };
   }
 
   // Check waiting list
@@ -73,17 +73,17 @@ export function removePlayerFromTemplate(
     w => normalizeJid(w.userId) === normalized,
   );
   if (waitIndex !== -1) {
-    return template.waitingList.splice(waitIndex, 1)[0];
+    return { removed: template.waitingList.splice(waitIndex, 1)[0], promoted: null };
   }
 
-  return null;
+  return { removed: null, promoted: null };
 }
 
 export function promoteFromWaitingList(
   template: TemplateState,
   vacatedSlotIndex: number,
-): void {
-  if (template.waitingList.length === 0) return;
+): PlayerSlot | null {
+  if (template.waitingList.length === 0) return null;
 
   const promoted = template.waitingList.shift()!;
   // If the vacated slot was laundry (slot 24, index 23), promoted player inherits כביסה
@@ -91,6 +91,7 @@ export function promoteFromWaitingList(
     promoted.isLaundry = true;
   }
   template.slots[vacatedSlotIndex] = promoted;
+  return promoted;
 }
 
 export async function executeAdminCommand(
@@ -117,7 +118,13 @@ export async function executeAdminCommand(
     }
 
     case 'remove_self': {
-      removePlayerFromTemplate(template, senderJid);
+      const { promoted: selfPromoted } = removePlayerFromTemplate(template, senderJid);
+      if (selfPromoted?.userId) {
+        await sock.sendMessage(config.groupJids.players, {
+          text: `@${selfPromoted.userId.replace(/@.*/, '')} נכנסת`,
+          mentions: [selfPromoted.userId],
+        });
+      }
       break;
     }
 
@@ -162,7 +169,7 @@ export async function executeAdminCommand(
         return;
       }
       // Remove from current position
-      const removed = removePlayerFromTemplate(template, '');
+      const { removed } = removePlayerFromTemplate(template, '');
       // Find by name instead
       let found = false;
       for (let i = 0; i < template.slots.length; i++) {
