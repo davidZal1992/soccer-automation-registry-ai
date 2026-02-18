@@ -128,8 +128,11 @@ async function processMessages(
         isEquipment: false,
       });
     } else if (action.type === 'cancel') {
-      // Always use sender's userId — never trust name from message
-      if (!weekly.userIdMap[normalizedId]) continue; // not registered, nothing to cancel
+      // Check both weekly map and template directly (player may have been added via Group 1)
+      const inWeekly = !!weekly.userIdMap[normalizedId];
+      const inTemplate = template.slots.some(s => s && normalizeJid(s.userId) === normalizedId)
+        || template.waitingList.some(w => normalizeJid(w.userId) === normalizedId);
+      if (!inWeekly && !inTemplate) continue; // not registered, nothing to cancel
       delete weekly.userIdMap[normalizedId];
       const { promoted } = removePlayerFromTemplate(template, normalizedId);
       if (promoted?.userId) {
