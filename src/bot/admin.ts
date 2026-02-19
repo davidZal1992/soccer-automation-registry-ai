@@ -3,6 +3,7 @@ import type { AdminCommand, PlayerSlot, TemplateState } from '../types.js';
 import { loadTemplate, saveTemplate, loadAdmins, saveAdmins } from './state.js';
 import { renderTemplate } from './template.js';
 import { normalizeJid } from '../utils/helpers.js';
+import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 
 function isFullName(name: string): boolean {
@@ -168,9 +169,7 @@ export async function executeAdminCommand(
         await sock.sendMessage(chatJid, { text: 'צריך שם מלא (שם פרטי + משפחה) לכביסה' });
         return;
       }
-      // Remove from current position
-      const { removed } = removePlayerFromTemplate(template, '');
-      // Find by name instead
+      // Find player by name and move to slot 24
       let found = false;
       for (let i = 0; i < template.slots.length; i++) {
         if (template.slots[i]?.name === command.name) {

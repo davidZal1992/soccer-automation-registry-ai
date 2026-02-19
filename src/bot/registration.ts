@@ -28,11 +28,13 @@ export async function sendTemplateToGroup2(sock: WASocket, text: string): Promis
 }
 
 export async function collectRegistrationMessage(
+  msgId: string,
   senderJid: string,
   text: string,
 ): Promise<void> {
   const weekly = await loadWeekly();
   weekly.messagesCollected.push({
+    msgId,
     senderJid: normalizeJid(senderJid),
     text,
     timestamp: Date.now(),
@@ -40,53 +42,27 @@ export async function collectRegistrationMessage(
   await saveWeekly(weekly);
 }
 
-// Debounce: collect messages for 15 seconds, then batch process
-const DEBOUNCE_MS = 15_000;
-let debounceBuffer: CollectedMessage[] = [];
-let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-let debounceSock: WASocket | null = null;
-
-export function queueImmediateRegistration(
-  sock: WASocket,
-  senderJid: string,
-  text: string,
-): void {
-  debounceBuffer.push({
-    senderJid: normalizeJid(senderJid),
-    text,
-    timestamp: Date.now(),
-  });
-  debounceSock = sock;
-
-  // Reset the timer — wait for 15s of quiet before processing
-  if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(flushDebounceBuffer, DEBOUNCE_MS);
-  logger.debug({ bufferSize: debounceBuffer.length }, 'Message queued, processing in 15s');
-}
-
-async function flushDebounceBuffer(): Promise<void> {
-  if (debounceBuffer.length === 0 || !debounceSock) return;
-
-  const messages = [...debounceBuffer];
-  debounceBuffer = [];
-  debounceTimer = null;
-
-  logger.info({ count: messages.length }, 'Flushing debounce buffer');
-  await processMessages(debounceSock, messages);
-}
-
-export async function processBurstRegistrations(sock: WASocket): Promise<void> {
+export async function removeCollectedMessage(msgId: string): Promise<void> {
   const weekly = await loadWeekly();
-  if (weekly.messagesCollected.length === 0) return;
-
-  const messages = [...weekly.messagesCollected];
-  weekly.messagesCollected = [];
-  await saveWeekly(weekly);
-
-  await processMessages(sock, messages);
+  const idx = weekly.messagesCollected.findIndex(m => m.msgId === msgId);
+  if (idx !== -1) {
+    weekly.messagesCollected.splice(idx, 1);
+    await saveWeekly(weekly);
+    logger.debug({ msgId }, 'Removed deleted message from collected buffer');
+  }
 }
 
-export async function processHourlyRefresh(sock: WASocket): Promise<void> {
+export async function editCollectedMessage(msgId: string, newText: string): Promise<void> {
+  const weekly = await loadWeekly();
+  const msg = weekly.messagesCollected.find(m => m.msgId === msgId);
+  if (msg) {
+    msg.text = newText;
+    await saveWeekly(weekly);
+    logger.debug({ msgId, newText: newText.substring(0, 50) }, 'Updated edited message in collected buffer');
+  }
+}
+
+export async function processCollectedMessages(sock: WASocket): Promise<void> {
   const weekly = await loadWeekly();
   if (weekly.messagesCollected.length === 0) return;
 
@@ -107,8 +83,12 @@ async function processMessages(
   const template = await loadTemplate();
   const weekly = await loadWeekly();
 
+  // Security: build set of actual sender JIDs from the message batch
+  const senderJids = new Set(messages.map(m => normalizeJid(m.senderJid)));
+
   // Dedup: one action per userId
   const seen = new Set<string>();
+  const promotedPlayers: { name: string; userId: string }[] = [];
 
   for (const action of actions) {
     const normalizedId = normalizeJid(action.userId);
@@ -120,6 +100,13 @@ async function processMessages(
       if (!name || name.split(/\s+/).length < 2) continue;
       // Skip if already registered by userId
       if (weekly.userIdMap[normalizedId]) continue;
+      // Skip if this name is already in the template (different person, same name)
+      const nameExists = template.slots.some(s => s && s.name === name)
+        || template.waitingList.some(w => w.name === name);
+      if (nameExists) {
+        logger.info({ name, userId: normalizedId }, 'Skipped duplicate name registration');
+        continue;
+      }
       weekly.userIdMap[normalizedId] = name;
       addPlayerToTemplate(template, {
         name,
@@ -127,7 +114,25 @@ async function processMessages(
         isLaundry: false,
         isEquipment: false,
       });
+    } else if (action.type === 'cancel_waiting') {
+      // Security: only allow cancellation if the userId was an actual sender in this batch
+      if (!senderJids.has(normalizedId)) {
+        logger.warn({ actionUserId: normalizedId, type: action.type }, 'Blocked cancel — userId is not an actual sender');
+        continue;
+      }
+      // "מבטל המתנה" — only remove from the waiting/holding list, no promotion
+      const waitIndex = template.waitingList.findIndex(
+        w => normalizeJid(w.userId) === normalizedId,
+      );
+      if (waitIndex === -1) continue; // not in holding list, ignore
+      template.waitingList.splice(waitIndex, 1);
+      delete weekly.userIdMap[normalizedId];
     } else if (action.type === 'cancel') {
+      // Security: only allow cancellation if the userId was an actual sender in this batch
+      if (!senderJids.has(normalizedId)) {
+        logger.warn({ actionUserId: normalizedId, type: action.type }, 'Blocked cancel — userId is not an actual sender');
+        continue;
+      }
       // Check both weekly map and template directly (player may have been added via Group 1)
       const inWeekly = !!weekly.userIdMap[normalizedId];
       const inTemplate = template.slots.some(s => s && normalizeJid(s.userId) === normalizedId)
@@ -136,10 +141,7 @@ async function processMessages(
       delete weekly.userIdMap[normalizedId];
       const { promoted } = removePlayerFromTemplate(template, normalizedId);
       if (promoted?.userId) {
-        await sock.sendMessage(config.groupJids.players, {
-          text: `@${promoted.userId.replace(/@.*/, '')} נכנסת`,
-          mentions: [promoted.userId],
-        });
+        promotedPlayers.push({ name: promoted.name, userId: promoted.userId });
       }
     }
   }
@@ -147,7 +149,19 @@ async function processMessages(
   await saveTemplate(template);
   await saveWeekly(weekly);
 
+  // Send template first, then promotion tags
   const rendered = renderTemplate(template);
   await sendTemplateToGroup2(sock, rendered);
+
+  if (promotedPlayers.length > 0) {
+    const mentions = promotedPlayers.map(p => p.userId);
+    const tags = promotedPlayers.map(p => `@${p.userId.replace(/@.*/, '')}`).join(' ');
+    const verb = promotedPlayers.length === 1 ? 'נכנסת' : 'נכנסתם';
+    await sock.sendMessage(config.groupJids.players, {
+      text: `${tags} ${verb}`,
+      mentions,
+    });
+  }
+
   logger.info({ actionCount: actions.length }, 'Processed registration messages');
 }

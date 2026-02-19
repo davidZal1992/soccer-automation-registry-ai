@@ -1,10 +1,14 @@
-import type { WASocket, WAMessage } from '@whiskeysockets/baileys';
+import type { WASocket, WAMessage, WAMessageKey, WAMessageUpdate } from '@whiskeysockets/baileys';
 import { config } from '../config/env.js';
-import { getSenderJid, normalizeJid, isBotMentioned, getMessageText, isAdminCommandWindowOpen, isBurstWindow } from '../utils/helpers.js';
+import { getSenderJid, normalizeJid, isBotMentioned, getMessageText, isAdminCommandWindowOpen } from '../utils/helpers.js';
 import { isAdmin, loadTemplate, loadBotControl, saveBotControl } from '../bot/state.js';
 import { executeAdminCommand, overrideTemplateFromText } from '../bot/admin.js';
 import { parseAdminCommandWithLLM } from '../bot/claude.js';
-import { collectRegistrationMessage, queueImmediateRegistration } from '../bot/registration.js';
+import {
+  collectRegistrationMessage,
+  removeCollectedMessage,
+  editCollectedMessage,
+} from '../bot/registration.js';
 import { logger } from '../utils/logger.js';
 
 function getMentionedJids(msg: WAMessage, botJid: string, botLid?: string): string[] {
@@ -153,12 +157,38 @@ async function handleGroup2Message(
   const template = await loadTemplate();
   if (!template.registrationOpen) return;
 
-  // During burst window (Fri 12:00-12:03): collect everything for batch processing
-  if (isBurstWindow()) {
-    await collectRegistrationMessage(senderJid, text);
-    return;
-  }
+  // Collect all messages to disk — processed every 30 min by cron
+  const msgId = msg.key.id || '';
+  await collectRegistrationMessage(msgId, senderJid, text);
+}
 
-  // After burst: debounce and process
-  queueImmediateRegistration(sock, senderJid, text);
+export function handleMessagesDelete() {
+  return async (event: { keys: WAMessageKey[] } | { jid: string; all: true }) => {
+    if ('all' in event) return;
+
+    for (const key of event.keys) {
+      if (!key.id || key.remoteJid !== config.groupJids.players) continue;
+      await removeCollectedMessage(key.id);
+    }
+  };
+}
+
+export function handleMessagesUpdate() {
+  return async (updates: WAMessageUpdate[]) => {
+    for (const update of updates) {
+      const key = update.key;
+      if (!key.id || key.remoteJid !== config.groupJids.players) continue;
+
+      const editedMsg = update.update?.message;
+      if (!editedMsg) continue;
+
+      const newText =
+        editedMsg.conversation ||
+        editedMsg.extendedTextMessage?.text ||
+        '';
+      if (!newText) continue;
+
+      await editCollectedMessage(key.id, newText);
+    }
+  };
 }

@@ -30,13 +30,14 @@ export interface WeeklyState {
 }
 
 export interface CollectedMessage {
+  msgId: string; // WAMessage key id for matching edits/deletes
   senderJid: string;
   text: string;
   timestamp: number;
 }
 
 export interface ParsedAction {
-  type: 'register' | 'cancel';
+  type: 'register' | 'cancel' | 'cancel_waiting';
   name: string;
   userId: string;
 }

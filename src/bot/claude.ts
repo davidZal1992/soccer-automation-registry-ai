@@ -19,18 +19,23 @@ Rules:
 - A registration requires a full name (first name + last name, at least 2 words).
 - Common registration phrases: "אני בפנים", "תרשום אותי", "בפנים", a full name on a line, "תרשום את [name]".
 - Common cancellation phrases: "אני לא יכול", "תוריד אותי", "מבטל", "לא בא", "תבטל".
-- For cancellation, you do NOT need a name — just return type "cancel" with the sender's userId.
+- IMPORTANT: "מבטל המתנה" or "מבטל מהמתנה" means cancelling from the WAITING/HOLDING list specifically. Use type "cancel_waiting" for this. This is different from a regular cancellation.
+- For cancellation, you do NOT need a name — just return type "cancel" or "cancel_waiting" with the sender's userId.
 - Ignore messages that are not about registration or cancellation.
 - If you cannot determine a full name for registration, skip that message.
 
 Return ONLY a JSON array of actions. Each action has:
-- "type": "register" or "cancel"
+- "type": "register", "cancel", or "cancel_waiting"
 - "name": the full name to register (Hebrew), or empty string for cancellation
 - "userId": the sender's JID (provided in the input)
+
+Use "cancel_waiting" ONLY when the message specifically mentions cancelling from the waiting/holding list (המתנה).
+Use "cancel" for all other cancellations.
 
 Example output:
 [{"type":"register","name":"דוד כהן","userId":"972541234567@s.whatsapp.net"}]
 [{"type":"cancel","name":"","userId":"972541234567@s.whatsapp.net"}]
+[{"type":"cancel_waiting","name":"","userId":"972541234567@s.whatsapp.net"}]
 
 If no actions found, return an empty array: []`;
 
@@ -45,7 +50,7 @@ export async function parseRegistrationMessages(
 
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages: [
@@ -69,7 +74,7 @@ export async function parseRegistrationMessages(
       if (!a.type || !a.userId) return false;
       // Registrations require full name, cancellations don't
       if (a.type === 'register') return a.name && a.name.split(/\s+/).length >= 2;
-      if (a.type === 'cancel') return true;
+      if (a.type === 'cancel' || a.type === 'cancel_waiting') return true;
       return false;
     });
   } catch (error) {

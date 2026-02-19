@@ -2,11 +2,14 @@ import type { WAMessage } from '@whiskeysockets/baileys';
 
 export function getUpcomingSaturday(): string {
   const now = new Date();
-  const day = now.getDay(); // 0=Sun, 6=Sat
+  const israelNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+  const day = israelNow.getDay(); // 0=Sun, 6=Sat
   const daysUntilSat = (6 - day + 7) % 7 || 7; // next Saturday (not today)
-  const sat = new Date(now);
-  sat.setDate(now.getDate() + daysUntilSat);
-  return sat.toISOString().split('T')[0];
+  israelNow.setDate(israelNow.getDate() + daysUntilSat);
+  const y = israelNow.getFullYear();
+  const m = String(israelNow.getMonth() + 1).padStart(2, '0');
+  const d = String(israelNow.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 export function formatHebrewDate(iso: string): string {
@@ -64,17 +67,6 @@ export function isAdminCommandWindowOpen(): boolean {
   return true;
 }
 
-export function isBurstWindow(): boolean {
-  const now = new Date();
-  const israelTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
-  const day = israelTime.getDay(); // 5=Friday
-  const hours = israelTime.getHours();
-  const minutes = israelTime.getMinutes();
-  const timeValue = hours * 60 + minutes;
-
-  // Friday 12:00 to 12:03
-  return day === 5 && timeValue >= 12 * 60 && timeValue < 12 * 60 + 3;
-}
 
 export function parseTimeString(text: string): string | null {
   const match = text.match(/^(\d{1,2}):(\d{2})$/);

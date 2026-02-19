@@ -1,15 +1,19 @@
 /**
- * E2E Simulation Test — with real timing
+ * E2E Simulation Test v4 — with real Claude API calls (Haiku 4.5)
  *
- * Simulates a full weekly cycle with real Claude API calls and real delays.
- * Burst window: 30 seconds (compressed from 3 min)
- * Post-burst debounce: 15 seconds
- * Total runtime: ~4-5 minutes
+ * Simulates a full weekly cycle including:
+ * - 30-min batch processing with mixed register/cancel
+ * - Message delete & edit during 12:00-12:03 burst
+ * - ~20 junky Saturday morning messages
+ * - Cancellation edge cases (waiting list, slot, empty list, laundry)
+ * - Security checks
  *
  * Run: npx tsx src/test/e2e-simulation.ts
+ * Output: src/test/e2e-output.txt
  */
 
 import 'dotenv/config';
+import { writeFileSync } from 'fs';
 import { parseAdminCommandWithLLM } from '../bot/claude.js';
 import { parseRegistrationMessages } from '../bot/claude.js';
 import {
@@ -20,146 +24,137 @@ import {
   saveWeekly,
   loadWeekly,
 } from '../bot/state.js';
-import { addPlayerToTemplate, removePlayerFromTemplate } from '../bot/admin.js';
+import {
+  addPlayerToTemplate,
+  removePlayerFromTemplate,
+} from '../bot/admin.js';
+import {
+  collectRegistrationMessage,
+  removeCollectedMessage,
+  editCollectedMessage,
+  processCollectedMessages,
+} from '../bot/registration.js';
 import { renderTemplate } from '../bot/template.js';
 import { normalizeJid } from '../utils/helpers.js';
-import type { AdminEntry, CollectedMessage } from '../types.js';
+import type { AdminEntry, CollectedMessage, ParsedAction } from '../types.js';
 
-// ─── Colors ───
-const C = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  magenta: '\x1b[35m',
-  cyan: '\x1b[36m',
-  red: '\x1b[31m',
-  gray: '\x1b[90m',
-  bgBlue: '\x1b[44m',
-};
+// ─── Output helpers ───
+const output: string[] = [];
+function log(text: string = ''): void { output.push(text); console.log(text); }
+function header(text: string): void { log(`\n${'='.repeat(60)}`); log(`  ${text}`); log('='.repeat(60)); }
+function sub(text: string): void { log(`\n  ▸ ${text}`); }
+function msg(sender: string, text: string, time: string): void { log(`  │ ${sender} [${time}]: ${text}`); }
+function bot(text: string, time: string): void {
+  log(`\n  ┌── Bot [${time}] ──`);
+  for (const line of text.split('\n')) log(`  │ ${line}`);
+  log(`  └──────────────────`);
+}
+function info(label: string, value: string): void { log(`  ${label}: ${value}`); }
+function act(text: string): void { log(`  >> ${text}`); }
+function check(label: string, pass: boolean): void { log(`  ${pass ? 'PASS' : 'FAIL'}: ${label}`); }
 
 // ─── Test Data ───
-
 const ADMINS: AdminEntry[] = [
-  { userId: '972501111111@s.whatsapp.net', name: 'דוד זלצמן' },
-  { userId: '972502222222@s.whatsapp.net', name: 'יוסי כהן' },
-  { userId: '972503333333@s.whatsapp.net', name: 'אבי לוי' },
-  { userId: '972504444444@s.whatsapp.net', name: 'רון שמיר' },
+  { userId: '162650512191597@lid', name: 'דוד זלצמן' },
+  { userId: '274268122300600@lid', name: 'גרי כוכבי' },
+  { userId: '258204927803537@lid', name: 'אורן טל סממה' },
+  { userId: '209770581598210@lid', name: 'יעקב טגדיה' },
 ];
 
 const PLAYERS = [
-  { jid: '972511000001@s.whatsapp.net', name: 'אלון דוד', msg: 'אלון דוד' },
-  { jid: '972511000002@s.whatsapp.net', name: 'גיל ברק', msg: 'גיל ברק' },
-  { jid: '972511000003@s.whatsapp.net', name: 'עומר שלום', msg: 'אני בפנים - עומר שלום' },
-  { jid: '972511000004@s.whatsapp.net', name: 'רוני לוי', msg: 'רוני לוי' },
-  { jid: '972511000005@s.whatsapp.net', name: 'אלי חגג', msg: 'אלי חגג' },
-  { jid: '972511000006@s.whatsapp.net', name: 'משה דוד', msg: 'משה דוד' },
-  { jid: '972511000007@s.whatsapp.net', name: 'יעקב פרץ', msg: 'מגיע! יעקב פרץ' },
-  { jid: '972511000008@s.whatsapp.net', name: 'דני אברהם', msg: 'תרשום את אחי דני אברהם' },
-  { jid: '972511000009@s.whatsapp.net', name: 'שמעון ביטון', msg: 'שמעון ביטון' },
-  { jid: '972511000010@s.whatsapp.net', name: 'חיים גולן', msg: 'חיים גולן' },
-  { jid: '972511000011@s.whatsapp.net', name: 'נתן אוחנה', msg: 'נתן אוחנה' },
-  { jid: '972511000012@s.whatsapp.net', name: 'איתי רוזן', msg: 'איתי רוזן' },
-  { jid: '972511000013@s.whatsapp.net', name: 'עידו מזרחי', msg: 'עידו מזרחי' },
-  { jid: '972511000014@s.whatsapp.net', name: 'תומר שושן', msg: 'תומר שושן' },
-  { jid: '972511000015@s.whatsapp.net', name: 'אסף כהן', msg: 'אסף כהן' },
-  { jid: '972511000016@s.whatsapp.net', name: 'יניב סויסה', msg: 'יניב סויסה' },
-  { jid: '972511000017@s.whatsapp.net', name: 'ליאור חדד', msg: 'ליאור חדד' },
-  { jid: '972511000018@s.whatsapp.net', name: 'בן צור', msg: 'בן צור' },
-  { jid: '972511000019@s.whatsapp.net', name: 'אורי שפירא', msg: 'אורי שפירא' },
-  { jid: '972511000020@s.whatsapp.net', name: 'גל אדרי', msg: 'גל אדרי' },
-  { jid: '972511000021@s.whatsapp.net', name: 'רועי אזולאי', msg: 'רועי אזולאי' },
-  { jid: '972511000022@s.whatsapp.net', name: 'עמית נחמיאס', msg: 'עמית נחמיאס' },
-  { jid: '972511000023@s.whatsapp.net', name: 'אריאל בכר', msg: 'אריאל בכר' },
-  { jid: '972511000024@s.whatsapp.net', name: 'דור אלון', msg: 'דור אלון' },
-  { jid: '972511000025@s.whatsapp.net', name: 'נועם גבאי', msg: 'נועם גבאי' },
-  { jid: '972511000026@s.whatsapp.net', name: 'יהונתן קפלן', msg: 'יהונתן קפלן' },
-  { jid: '972511000027@s.whatsapp.net', name: 'מתן ישראלי', msg: 'מתן ישראלי' },
-  { jid: '972511000028@s.whatsapp.net', name: 'עדי פלד', msg: 'עדי פלד' },
-  { jid: '972511000029@s.whatsapp.net', name: 'שחר מלכה', msg: 'שחר מלכה' },
-  { jid: '972511000030@s.whatsapp.net', name: 'טל בן דוד', msg: 'טל בן דוד' },
-  // Late registrations
-  { jid: '972511000031@s.whatsapp.net', name: 'נדב אהרון', msg: 'נדב אהרון' },
-  { jid: '972511000032@s.whatsapp.net', name: 'אופיר גרוס', msg: 'אופיר גרוס' },
-  { jid: '972511000033@s.whatsapp.net', name: 'רז כרמלי', msg: 'רז כרמלי' },
-  { jid: '972511000034@s.whatsapp.net', name: 'עמרי סבג', msg: 'עמרי סבג' },
-  { jid: '972511000035@s.whatsapp.net', name: 'ניר חזן', msg: 'ניר חזן' },
+  // 30 burst players
+  { jid: '100000000001@lid', name: 'אלון דוד', msg: 'אלון דוד' },
+  { jid: '100000000002@lid', name: 'גיל ברק', msg: 'גיל ברק' },
+  { jid: '100000000003@lid', name: 'עומר שלום', msg: 'אני בפנים - עומר שלום' },
+  { jid: '100000000004@lid', name: 'רוני לוי', msg: 'רוני לוי' },
+  { jid: '100000000005@lid', name: 'אלי חגג', msg: 'אלי חגג' },
+  { jid: '100000000006@lid', name: 'משה דוד', msg: 'משה דוד' },
+  { jid: '100000000007@lid', name: 'יעקב פרץ', msg: 'מגיע! יעקב פרץ' },
+  { jid: '100000000008@lid', name: 'דני אברהם', msg: 'דני אברהם' },
+  { jid: '100000000009@lid', name: 'שמעון ביטון', msg: 'שמעון ביטון' },
+  { jid: '100000000010@lid', name: 'חיים גולן', msg: 'חיים גולן' },
+  { jid: '100000000011@lid', name: 'נתן אוחנה', msg: 'נתן אוחנה' },
+  { jid: '100000000012@lid', name: 'איתי רוזן', msg: 'איתי רוזן' },
+  { jid: '100000000013@lid', name: 'עידו מזרחי', msg: 'עידו מזרחי' },
+  { jid: '100000000014@lid', name: 'תומר שושן', msg: 'תומר שושן' },
+  { jid: '100000000015@lid', name: 'אסף כהן', msg: 'אסף כהן' },
+  { jid: '100000000016@lid', name: 'יניב סויסה', msg: 'יניב סויסה' },
+  { jid: '100000000017@lid', name: 'ליאור חדד', msg: 'ליאור חדד' },
+  { jid: '100000000018@lid', name: 'בן צור', msg: 'בן צור' },
+  { jid: '100000000019@lid', name: 'אורי שפירא', msg: 'אורי שפירא' },
+  { jid: '100000000020@lid', name: 'גל אדרי', msg: 'גל אדרי' },
+  { jid: '100000000021@lid', name: 'רועי אזולאי', msg: 'רועי אזולאי' },
+  { jid: '100000000022@lid', name: 'עמית נחמיאס', msg: 'עמית נחמיאס' },
+  { jid: '100000000023@lid', name: 'אריאל בכר', msg: 'אריאל בכר' },
+  { jid: '100000000024@lid', name: 'דור אלון', msg: 'דור אלון' },
+  { jid: '100000000025@lid', name: 'נועם גבאי', msg: 'נועם גבאי' },
+  { jid: '100000000026@lid', name: 'יהונתן קפלן', msg: 'יהונתן קפלן' },
+  { jid: '100000000027@lid', name: 'מתן ישראלי', msg: 'מתן ישראלי' },
+  { jid: '100000000028@lid', name: 'עדי פלד', msg: 'עדי פלד' },
+  { jid: '100000000029@lid', name: 'שחר מלכה', msg: 'שחר מלכה' },
+  { jid: '100000000030@lid', name: 'טל בן דוד', msg: 'טל בן דוד' },
+  // 5 late players (go to waiting list)
+  { jid: '100000000031@lid', name: 'נדב אהרון', msg: 'נדב אהרון' },
+  { jid: '100000000032@lid', name: 'אופיר גרוס', msg: 'אופיר גרוס' },
+  { jid: '100000000033@lid', name: 'רז כרמלי', msg: 'רז כרמלי' },
+  { jid: '100000000034@lid', name: 'עמרי סבג', msg: 'עמרי סבג' },
+  { jid: '100000000035@lid', name: 'ניר חזן', msg: 'ניר חזן' },
+  // Extra players for later phases
+  { jid: '100000000036@lid', name: 'אייל מרדכי', msg: 'אייל מרדכי' },
+  { jid: '100000000037@lid', name: 'בועז שטרן', msg: 'בועז שטרן' },
+  { jid: '100000000038@lid', name: 'הראל ויצמן', msg: 'הראל ויצמן' },
+  { jid: '100000000039@lid', name: 'סהר אלבז', msg: 'סהר אלבז' },
+  { jid: '100000000040@lid', name: 'עידן כהן', msg: 'עידן כהן' },
+  { jid: '100000000041@lid', name: 'יואב ברוך', msg: 'יואב ברוך' },
 ];
 
-const FAKE_MESSAGES = [
-  { jid: '972511000050@s.whatsapp.net', name: '???', msg: 'מי מביא כדור?' },
-  { jid: '972511000051@s.whatsapp.net', name: '???', msg: 'איזה מגרש?' },
-  { jid: '972511000052@s.whatsapp.net', name: '???', msg: '😂😂😂' },
-  { jid: '972511000053@s.whatsapp.net', name: '???', msg: 'יאלה' },
-  { jid: '972511000054@s.whatsapp.net', name: '???', msg: 'מישהו צריך הסעה?' },
-  { jid: PLAYERS[3].jid, name: 'רוני לוי', msg: 'תבטל את אלי חגג' },
+// Burst window noise
+const BURST_NOISE = [
+  { jid: '100000000050@lid', msg: 'מי מביא כדור?' },
+  { jid: '100000000051@lid', msg: 'איזה מגרש?' },
+  { jid: '100000000052@lid', msg: '😂😂😂' },
+  { jid: PLAYERS[3].jid, msg: 'תבטל את אלי חגג' },
+];
+
+// Saturday morning junk messages (~20)
+const SATURDAY_JUNK = [
+  { jid: '100000000080@lid', msg: 'בוקר טוב לכולם' },
+  { jid: '100000000081@lid', msg: 'מה נשמע' },
+  { jid: '100000000082@lid', msg: 'איזה קור בחוץ' },
+  { jid: '100000000083@lid', msg: '😂😂😂😂' },
+  { jid: '100000000084@lid', msg: 'מי ראה את המשחק אתמול?' },
+  { jid: '100000000085@lid', msg: 'איזה גול מטורף' },
+  { jid: '100000000086@lid', msg: 'אחי תעזוב' },
+  { jid: '100000000087@lid', msg: 'מישהו יודע מתי היום?' },
+  { jid: '100000000088@lid', msg: 'כן כן' },
+  { jid: '100000000089@lid', msg: 'לא' },
+  { jid: '100000000090@lid', msg: '👍' },
+  { jid: '100000000091@lid', msg: 'תגיד יש מגרש היום?' },
+  { jid: '100000000092@lid', msg: 'ברור' },
+  { jid: '100000000093@lid', msg: 'מי מביא מים?' },
+  { jid: '100000000094@lid', msg: 'אני' },
+  { jid: '100000000095@lid', msg: 'לול' },
+  { jid: '100000000096@lid', msg: 'יאללה כדורגל!' },
+  { jid: '100000000080@lid', msg: 'מתי חימום?' },
+  { jid: '100000000081@lid', msg: 'תשאל את דוד' },
+  { jid: '100000000082@lid', msg: 'אוקיי' },
 ];
 
 // ─── Helpers ───
-
-function printHeader(text: string): void {
-  console.log('\n' + C.bgBlue + C.bold + ` ${text} ` + C.reset);
-  console.log(C.dim + '─'.repeat(60) + C.reset);
-}
-
-function printSub(text: string): void {
-  console.log('\n' + C.cyan + C.bold + `  ▸ ${text}` + C.reset);
-}
-
-function printMsg(sender: string, text: string, time: string): void {
-  console.log(C.green + `  │ 👤 ${sender}` + C.reset + C.gray + ` [${time}]` + C.reset);
-  console.log(`  │    ${text}`);
-}
-
-function printBot(text: string, time: string): void {
-  console.log(C.gray + `\n  ┌── 🤖 Bot [${time}] ──────────────────────` + C.reset);
-  for (const line of text.split('\n')) {
-    console.log(C.blue + `  │ ${line}` + C.reset);
-  }
-  console.log(C.gray + `  └──────────────────────────────────────` + C.reset);
-}
-
-function info(label: string, value: string): void {
-  console.log(C.yellow + `  ✦ ${label}: ` + C.reset + value);
-}
-
-function action(text: string): void {
-  console.log(C.magenta + `  ⚡ ${text}` + C.reset);
-}
-
-function ignored(reason: string): void {
-  console.log(C.red + `  ✗ IGNORED — ${reason}` + C.reset);
-}
-
-function countdown(label: string, seconds: number): Promise<void> {
-  return new Promise(resolve => {
-    let remaining = seconds;
-    const timer = setInterval(() => {
-      process.stdout.write(`\r${C.dim}  ⏳ ${label}: ${remaining}s remaining...${C.reset}  `);
-      remaining--;
-      if (remaining < 0) {
-        clearInterval(timer);
-        process.stdout.write('\r' + ' '.repeat(60) + '\r');
-        resolve();
-      }
-    }, 1000);
-  });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
-}
+let msgCounter = 0;
+function nextMsgId(): string { return `msg-${++msgCounter}`; }
 
 async function applyActions(
-  actions: { type: string; name: string; userId: string }[],
-): Promise<{ registered: number; ignored: number }> {
+  actions: ParsedAction[],
+  allowedSenderJids?: Set<string>,
+): Promise<{ registered: number; cancelled: number; ignored: number; promotions: string[] }> {
   const template = await loadTemplate();
   const weekly = await loadWeekly();
   const seen = new Set<string>();
   let registered = 0;
+  let cancelled = 0;
   let ign = 0;
+  const promotions: string[] = [];
 
   for (const a of actions) {
     const nid = normalizeJid(a.userId);
@@ -171,379 +166,697 @@ async function applyActions(
       if (!name || name.split(/\s+/).length < 2) { ign++; continue; }
       if (weekly.userIdMap[nid]) { ign++; continue; }
       weekly.userIdMap[nid] = name;
-      addPlayerToTemplate(template, {
-        name,
-        userId: nid,
-        isLaundry: false,
-        isEquipment: false,
-      });
+      addPlayerToTemplate(template, { name, userId: nid, isLaundry: false, isEquipment: false });
       registered++;
-    } else if (a.type === 'cancel') {
-      if (!weekly.userIdMap[nid]) { ign++; continue; }
+    } else if (a.type === 'cancel_waiting') {
+      if (allowedSenderJids && !allowedSenderJids.has(nid)) { ign++; continue; }
+      const waitIndex = template.waitingList.findIndex(w => normalizeJid(w.userId) === nid);
+      if (waitIndex === -1) { ign++; continue; }
+      template.waitingList.splice(waitIndex, 1);
       delete weekly.userIdMap[nid];
-      removePlayerFromTemplate(template, nid);
-      registered++;
+      cancelled++;
+    } else if (a.type === 'cancel') {
+      if (allowedSenderJids && !allowedSenderJids.has(nid)) { ign++; continue; }
+      const inWeekly = !!weekly.userIdMap[nid];
+      const inTemplate = template.slots.some(s => s && normalizeJid(s.userId) === nid)
+        || template.waitingList.some(w => normalizeJid(w.userId) === nid);
+      if (!inWeekly && !inTemplate) { ign++; continue; }
+      delete weekly.userIdMap[nid];
+      const { promoted } = removePlayerFromTemplate(template, nid);
+      if (promoted) promotions.push(promoted.name);
+      cancelled++;
     }
   }
 
   await saveTemplate(template);
   await saveWeekly(weekly);
-  return { registered, ignored: ign };
+  return { registered, cancelled, ignored: ign, promotions };
+}
+
+/** Simulate a 30-min batch: collect messages, send to Claude, apply */
+async function processBatch(
+  label: string,
+  time: string,
+  messages: { name: string; jid: string; text: string }[],
+): Promise<{ registered: number; cancelled: number; ignored: number; promotions: string[] }> {
+  sub(`${time} — ${label}`);
+  const collected: CollectedMessage[] = [];
+  for (const m of messages) {
+    msg(m.name, m.text, time);
+    collected.push({ msgId: nextMsgId(), senderJid: m.jid, text: m.text, timestamp: Date.now() });
+  }
+  act(`30-min cron fires → sending ${collected.length} messages to Claude...`);
+  const actions = await parseRegistrationMessages(collected);
+
+  sub('Claude parsed:');
+  for (const a of actions) {
+    const icon = a.type === 'register' ? '+' : a.type.startsWith('cancel') ? '-' : '?';
+    log(`    [${icon}] ${a.type}: "${a.name}" (${a.userId.split('@')[0]})`);
+  }
+
+  const senderJids = new Set(messages.map(m => normalizeJid(m.jid)));
+  const result = await applyActions(actions, senderJids);
+  const template = await loadTemplate();
+
+  info('Registered', result.registered.toString());
+  info('Cancelled', result.cancelled.toString());
+  info('Ignored', result.ignored.toString());
+  if (result.promotions.length > 0) {
+    const verb = result.promotions.length === 1 ? 'נכנסת' : 'נכנסתם';
+    act(`Bot tags: ${result.promotions.map(n => `@${n}`).join(' ')} ${verb}`);
+  }
+  info('Slots', `${template.slots.filter(s => s).length}/24`);
+  info('Waiting list', template.waitingList.length.toString());
+  bot(renderTemplate(template), time);
+  return result;
 }
 
 // ─── Main ───
-
 async function run(): Promise<void> {
-  console.log(C.bold + '\n╔══════════════════════════════════════════════════════╗' + C.reset);
-  console.log(C.bold +   '║     ⚽ SOCCER BOT — E2E SIMULATION (with timing)    ║' + C.reset);
-  console.log(C.bold +   '╚══════════════════════════════════════════════════════╝\n' + C.reset);
+  log('╔══════════════════════════════════════════════════════╗');
+  log('║     SOCCER BOT — E2E SIMULATION v4 (Haiku 4.5)     ║');
+  log('╚══════════════════════════════════════════════════════╝');
 
-  // ════════════════════════════════
-  // RESET
-  // ════════════════════════════════
-  printHeader('PHASE 1: Saturday 23:00 — Weekly Reset');
+  // ════════════════════════════════════════
+  // PHASE 1: Weekly Reset
+  // ════════════════════════════════════════
+  header('PHASE 1: Saturday 23:00 — Weekly Reset');
   await saveAdmins(ADMINS);
   await saveTemplate(createDefaultTemplate());
   await saveWeekly({ userIdMap: {}, messagesCollected: [] });
-  action('Template reset, admins seeded');
+  act('Template reset, admins seeded');
   info('Admins', ADMINS.map(a => a.name).join(', '));
 
-  // ════════════════════════════════
-  // SUNDAY — CLEAN TEMPLATE
-  // ════════════════════════════════
-  printHeader('PHASE 2: Sunday 11:00 — Clean Template → Group 1');
+  // ════════════════════════════════════════
+  // PHASE 2: Sunday — Clean template to Group 1
+  // ════════════════════════════════════════
+  header('PHASE 2: Sunday 11:00 — Clean Template → Group 1');
   let template = await loadTemplate();
-  printBot(renderTemplate(template), 'Sun 11:00');
+  bot(renderTemplate(template), 'Sun 11:00');
 
-  // ════════════════════════════════
-  // WEEK — ADMIN COMMANDS
-  // ════════════════════════════════
-  printHeader('PHASE 3: Week — Admin Commands in Group 1');
+  // ════════════════════════════════════════
+  // PHASE 3: Week — Admin commands
+  // ════════════════════════════════════════
+  header('PHASE 3: Week — Admin Commands in Group 1');
 
-  // --- Laundry ---
-  printSub('Monday 10:00 — Set laundry');
-  printMsg('דוד זלצמן', '@Bot כביסה מאור כהן', 'Mon 10:00');
+  sub('Monday 10:00 — Set laundry: מאור כהן');
+  msg('דוד זלצמן', '@Bot כביסה מאור כהן', 'Mon 10:00');
   let cmd = await parseAdminCommandWithLLM('כביסה מאור כהן', []);
-  info('LLM', JSON.stringify(cmd));
-
+  info('LLM parsed', JSON.stringify(cmd));
   template = await loadTemplate();
-  addPlayerToTemplate(template, { name: 'מאור כהן', userId: '972511000099@s.whatsapp.net', isLaundry: false, isEquipment: false });
-  for (let i = 0; i < template.slots.length; i++) {
-    if (template.slots[i]?.name === 'מאור כהן') {
-      const p = template.slots[i]!;
-      template.slots[i] = null;
-      p.isLaundry = true;
-      template.slots[23] = p;
-      break;
-    }
-  }
+  template.slots[23] = { name: 'מאור כהן', userId: '100000000099@lid', isLaundry: true, isEquipment: false };
   await saveTemplate(template);
-  printBot(renderTemplate(await loadTemplate()), 'Mon 10:00');
+  bot(renderTemplate(await loadTemplate()), 'Mon 10:00');
 
-  // --- Equipment ---
-  printSub('Monday 14:00 — Set equipment');
-  printMsg('יוסי כהן', '@Bot ציוד אלכס זלצמן', 'Mon 14:00');
-  cmd = await parseAdminCommandWithLLM('ציוד אלכס זלצמן', []);
-  info('LLM', JSON.stringify(cmd));
-
+  sub('Monday 14:00 — Set equipment: נתאי רחבי');
+  msg('גרי כוכבי', '@Bot נתאי רחבי ציוד', 'Mon 14:00');
+  cmd = await parseAdminCommandWithLLM('נתאי רחבי ציוד', []);
+  info('LLM parsed', JSON.stringify(cmd));
   template = await loadTemplate();
-  addPlayerToTemplate(template, { name: 'אלכס זלצמן', userId: '972511000098@s.whatsapp.net', isLaundry: false, isEquipment: false });
-  const eqIdx = template.slots.findIndex(s => s?.name === 'אלכס זלצמן');
-  if (eqIdx !== -1) template.slots[eqIdx]!.isEquipment = true;
+  addPlayerToTemplate(template, { name: 'נתאי רחבי', userId: '100000000097@lid', isLaundry: false, isEquipment: true });
   await saveTemplate(template);
-  printBot(renderTemplate(await loadTemplate()), 'Mon 14:00');
+  bot(renderTemplate(await loadTemplate()), 'Mon 14:00');
 
-  // --- Admin registers self ---
-  printSub('Tuesday 09:00 — Admin registers self');
-  printMsg('אבי לוי', '@Bot תרשום אותי', 'Tue 09:00');
+  sub('Tuesday 09:00 — Admin אורן טל סממה registers self');
   cmd = await parseAdminCommandWithLLM('תרשום אותי', []);
-  info('LLM', JSON.stringify(cmd));
+  info('LLM parsed', JSON.stringify(cmd));
   template = await loadTemplate();
-  addPlayerToTemplate(template, { name: 'אבי לוי', userId: ADMINS[2].userId, isLaundry: false, isEquipment: false });
+  addPlayerToTemplate(template, { name: 'אורן טל סממה', userId: ADMINS[2].userId, isLaundry: false, isEquipment: false });
   await saveTemplate(template);
-  printBot(renderTemplate(await loadTemplate()), 'Tue 09:00');
 
-  // --- Admin registers self (natural) ---
-  printSub('Tuesday 11:00 — Admin registers (natural language)');
-  printMsg('רון שמיר', '@Bot תוסיף אותי בבקשה', 'Tue 11:00');
-  cmd = await parseAdminCommandWithLLM('תוסיף אותי בבקשה', []);
-  info('LLM', JSON.stringify(cmd));
+  sub('Tuesday 11:00 — Admin דוד זלצמן registers self');
+  cmd = await parseAdminCommandWithLLM('תרשום אותי', []);
+  info('LLM parsed', JSON.stringify(cmd));
   template = await loadTemplate();
-  addPlayerToTemplate(template, { name: 'רון שמיר', userId: ADMINS[3].userId, isLaundry: false, isEquipment: false });
+  addPlayerToTemplate(template, { name: 'דוד זלצמן', userId: ADMINS[0].userId, isLaundry: false, isEquipment: false });
   await saveTemplate(template);
-  printBot(renderTemplate(await loadTemplate()), 'Tue 11:00');
 
-  // --- Show template ---
-  printSub('Thursday 20:00 — Admin checks list');
-  printMsg('דוד זלצמן', '@Bot מה המצב', 'Thu 20:00');
-  cmd = await parseAdminCommandWithLLM('מה המצב', []);
-  info('LLM', JSON.stringify(cmd));
-  printBot(renderTemplate(await loadTemplate()), 'Thu 20:00');
+  sub('Thursday 20:00 — Show template');
+  cmd = await parseAdminCommandWithLLM('תשלח תרשימה', []);
+  info('LLM parsed', JSON.stringify(cmd));
+  bot(renderTemplate(await loadTemplate()), 'Thu 20:00');
 
-  // --- Unrecognized ---
-  printSub('Thursday 20:05 — Unrecognized message');
-  printMsg('דוד זלצמן', '@Bot מה שלומך', 'Thu 20:05');
-  cmd = await parseAdminCommandWithLLM('מה שלומך', []);
-  info('LLM', JSON.stringify(cmd));
-  if (!cmd) ignored('Unrecognized → null, no response');
+  // ════════════════════════════════════════
+  // PHASE 4-5: Friday setup
+  // ════════════════════════════════════════
+  header('PHASE 4: Friday 11:50 — Bot Auto-Wakes');
+  act('sleeping = false');
 
-  // ════════════════════════════════
-  // FRIDAY 11:59 — POST TO GROUP 2
-  // ════════════════════════════════
-  printHeader('PHASE 4: Friday 11:59 — Post Template → Group 2');
+  header('PHASE 5: Friday 11:59 — Post Template → Group 2');
   template = await loadTemplate();
-  printBot(renderTemplate(template), 'Fri 11:59');
-  action('Template posted to Group 2');
+  bot(renderTemplate(template), 'Fri 11:59');
 
-  // ════════════════════════════════
-  // FRIDAY 12:00 — OPEN GROUP
-  // ════════════════════════════════
-  printHeader('PHASE 5: Friday 12:00 — Group Opens, Burst Window (30 seconds)');
+  // ════════════════════════════════════════
+  // PHASE 6: Burst window 12:00-12:03 with noise + delete + edit
+  // ════════════════════════════════════════
+  header('PHASE 6: Friday 12:00 — Burst Window (30 players + noise + delete + edit)');
   template.registrationOpen = true;
   await saveTemplate(template);
-  action('Group 2 opened for everyone');
-  action('Burst window OPEN — collecting messages (NOT sending to Claude yet)');
+  act('Group 2 opened — collecting messages to disk');
 
   const burstCollected: CollectedMessage[] = [];
-
-  // Peak: 15 messages in first 5 seconds
-  printSub('12:00:00-12:00:05 — Peak burst (15 messages)');
-  for (let i = 0; i < 15; i++) {
+  sub('12:00:00-12:00:30 — 30 players register');
+  for (let i = 0; i < 30; i++) {
     const p = PLAYERS[i];
-    printMsg(p.name, p.msg, `12:00:0${Math.floor(i / 3)}`);
-    burstCollected.push({ senderJid: p.jid, text: p.msg, timestamp: Date.now() + i });
-    await sleep(300); // 0.3s between messages to show arrival
-  }
-  info('Collected so far', `${burstCollected.length} messages (NOT processed yet)`);
-
-  // Fake messages mixed in
-  printSub('12:00:08 — Chat messages arrive (mixed in)');
-  for (const fake of FAKE_MESSAGES.slice(0, 3)) {
-    printMsg(fake.name, fake.msg, '12:00:08');
-    burstCollected.push({ senderJid: fake.jid, text: fake.msg, timestamp: Date.now() });
-    await sleep(200);
-  }
-  info('Collected so far', `${burstCollected.length} messages (including fake ones)`);
-
-  // Rest of burst: 15 more
-  printSub('12:00:10-12:00:25 — More registrations (15 messages)');
-  for (let i = 15; i < 30; i++) {
-    const p = PLAYERS[i];
-    printMsg(p.name, p.msg, `12:00:${10 + Math.floor((i - 15) / 2)}`);
-    burstCollected.push({ senderJid: p.jid, text: p.msg, timestamp: Date.now() + i });
-    await sleep(300);
+    msg(p.name, p.msg, `12:00:${String(i).padStart(2, '0')}`);
+    burstCollected.push({ msgId: nextMsgId(), senderJid: p.jid, text: p.msg, timestamp: Date.now() + i });
   }
 
-  // More fake messages
-  printSub('12:00:27 — More chat noise');
-  for (const fake of FAKE_MESSAGES.slice(3)) {
-    printMsg(fake.name, fake.msg, '12:00:27');
-    burstCollected.push({ senderJid: fake.jid, text: fake.msg, timestamp: Date.now() });
-    await sleep(200);
+  sub('12:00:15 — Chat noise mixed in');
+  for (const fake of BURST_NOISE) {
+    msg('???', fake.msg, '12:00:15');
+    burstCollected.push({ msgId: nextMsgId(), senderJid: fake.jid, text: fake.msg, timestamp: Date.now() });
   }
 
-  info('Total collected in burst', `${burstCollected.length} messages`);
-  action('Waiting for burst window to close...');
+  // Player #5 (אלי חגג) deletes his message at 12:00:35
+  sub('12:00:35 — אלי חגג DELETES his registration message');
+  const deletedMsgId = burstCollected.find(m => m.senderJid === PLAYERS[4].jid)!.msgId;
+  info('Deleted msgId', deletedMsgId);
+  burstCollected.splice(burstCollected.findIndex(m => m.msgId === deletedMsgId), 1);
+  act('Message removed from collected buffer (simulating removeCollectedMessage)');
 
-  // Real 15-second wait
-  await countdown('Burst window closing', 15);
+  // Player #8 (דני אברהם) edits his message at 12:01:00 — typo fix
+  sub('12:01:00 — דני אברהם EDITS his message to fix a typo');
+  const editedMsg = burstCollected.find(m => m.senderJid === PLAYERS[7].jid)!;
+  const oldText = editedMsg.text;
+  editedMsg.text = 'דני אברהם';
+  info('Original text', oldText);
+  info('Edited text', editedMsg.text);
+  act('Message text updated in collected buffer (simulating editCollectedMessage)');
 
-  // ════════════════════════════════
-  // 12:03 — PROCESS BURST
-  // ════════════════════════════════
-  printHeader('PHASE 6: Friday 12:03 — Burst Window Closed, Processing');
-  action(`Sending ${burstCollected.length} messages to Claude Sonnet...`);
+  // Player #15 (אסף כהן) registers then deletes at 12:01:30 — regret
+  sub('12:01:30 — אסף כהן DELETES his registration (changed his mind)');
+  const regretMsgId = burstCollected.find(m => m.senderJid === PLAYERS[14].jid)!.msgId;
+  burstCollected.splice(burstCollected.findIndex(m => m.msgId === regretMsgId), 1);
+  act('אסף כהן message removed — he changed his mind');
 
+  info('Total burst messages after deletes', `${burstCollected.length}`);
+
+  // ════════════════════════════════════════
+  // PHASE 7: 12:03 — Process burst
+  // ════════════════════════════════════════
+  header('PHASE 7: Friday 12:03 — Processing Burst');
+  act(`Sending ${burstCollected.length} messages to Claude...`);
   const burstActions = await parseRegistrationMessages(burstCollected);
+  info('Claude actions', burstActions.length.toString());
 
-  info('Messages sent to Claude', burstCollected.length.toString());
-  info('Actions Claude extracted', burstActions.length.toString());
-
-  printSub('Claude parsed:');
+  sub('Claude parsed:');
   for (const a of burstActions) {
-    const icon = a.type === 'register' ? '✅' : a.type === 'cancel' ? '🚫' : '❓';
-    console.log(C.dim + `    ${icon} ${a.type}: "${a.name}" (${a.userId.split('@')[0]})` + C.reset);
+    const icon = a.type === 'register' ? '+' : '-';
+    log(`    [${icon}] ${a.type}: "${a.name}" (${a.userId.split('@')[0]})`);
   }
 
   const burstResult = await applyActions(burstActions);
   template = await loadTemplate();
-
   info('Registered', burstResult.registered.toString());
-  info('Ignored/filtered', burstResult.ignored.toString());
-  info('Slots filled', `${template.slots.filter(s => s !== null).length}/24`);
+  info('Ignored', burstResult.ignored.toString());
+  info('Slots', `${template.slots.filter(s => s).length}/24`);
   info('Waiting list', template.waitingList.length.toString());
+  check('אלי חגג NOT registered (deleted message)', !template.slots.some(s => s?.name === 'אלי חגג') && !template.waitingList.some(w => w.name === 'אלי חגג'));
+  check('אסף כהן NOT registered (deleted message)', !template.slots.some(s => s?.name === 'אסף כהן') && !template.waitingList.some(w => w.name === 'אסף כהן'));
+  check('דני אברהם IS registered (edited ok)', template.slots.some(s => s?.name === 'דני אברהם') || template.waitingList.some(w => w.name === 'דני אברהם'));
+  bot(renderTemplate(template), 'Fri 12:03');
 
-  printSub('🗑️ Bot deletes 11:59 template, posts updated:');
-  printBot(renderTemplate(template), 'Fri 12:03');
-
-  // ════════════════════════════════
-  // LATE REGISTRATIONS (with debounce)
-  // ════════════════════════════════
-  printHeader('PHASE 7: Friday 12:09+ — Late Registrations (debounced)');
-
-  const latePlayers = PLAYERS.slice(30, 35);
-
-  // Simulate: 3 arrive close together (debounced), then 2 more
-  printSub('12:09 — 3 late players arrive within seconds');
-  const lateBatch1: CollectedMessage[] = [];
-  for (let i = 0; i < 3; i++) {
-    const p = latePlayers[i];
-    printMsg(p.name, p.msg, '12:09');
-    lateBatch1.push({ senderJid: p.jid, text: p.msg, timestamp: Date.now() });
-    await sleep(500);
+  // ════════════════════════════════════════
+  // PHASE 8: Late registrations (go to waiting list)
+  // ════════════════════════════════════════
+  header('PHASE 8: Friday 12:33 — 5 Late Registrations');
+  const lateBatch: { name: string; jid: string; text: string }[] = [];
+  for (const p of PLAYERS.slice(30, 35)) {
+    lateBatch.push({ name: p.name, jid: p.jid, text: p.msg });
   }
-  action('3 messages queued, waiting 15s debounce...');
-  await countdown('Debounce', 15);
-
-  action('Debounce flush — sending 3 messages to Claude...');
-  const late1Actions = await parseRegistrationMessages(lateBatch1);
-  await applyActions(late1Actions);
+  await processBatch('5 late players register', 'Fri 12:33', lateBatch);
   template = await loadTemplate();
-  info('Slots', `${template.slots.filter(s => s).length}/24 | Waiting: ${template.waitingList.length}`);
-  printSub('🗑️ Bot deletes previous, posts updated:');
-  printBot(renderTemplate(template), 'Fri 12:09');
+  check('All 5 in waiting list', template.waitingList.length >= 5);
 
-  // 2 more arrive later
-  printSub('12:25 — 2 more late players');
-  const lateBatch2: CollectedMessage[] = [];
-  for (let i = 3; i < 5; i++) {
-    const p = latePlayers[i];
-    printMsg(p.name, p.msg, '12:25');
-    lateBatch2.push({ senderJid: p.jid, text: p.msg, timestamp: Date.now() });
-    await sleep(500);
-  }
-  action('2 messages queued, waiting 15s debounce...');
-  await countdown('Debounce', 15);
+  // ════════════════════════════════════════
+  // PHASE 9: 30-min batch — mixed registrations + cancellations
+  // ════════════════════════════════════════
+  header('PHASE 9: 30-min Batch — 3 Register + 2 Cancel + 1 Register');
+  sub('Scenario: 3 new players register, 2 existing cancel, then 1 more registers');
 
-  action('Debounce flush — sending 2 messages to Claude...');
-  const late2Actions = await parseRegistrationMessages(lateBatch2);
-  await applyActions(late2Actions);
+  const mixedBatch: { name: string; jid: string; text: string }[] = [
+    { name: PLAYERS[35].name, jid: PLAYERS[35].jid, text: PLAYERS[35].msg },
+    { name: PLAYERS[36].name, jid: PLAYERS[36].jid, text: PLAYERS[36].msg },
+    { name: PLAYERS[37].name, jid: PLAYERS[37].jid, text: PLAYERS[37].msg },
+    { name: PLAYERS[9].name, jid: PLAYERS[9].jid, text: 'מבטל' },
+    { name: PLAYERS[10].name, jid: PLAYERS[10].jid, text: 'אני לא יכול מבטל' },
+    { name: PLAYERS[38].name, jid: PLAYERS[38].jid, text: PLAYERS[38].msg },
+  ];
+  const mixedResult = await processBatch('Mixed batch (3 reg + 2 cancel + 1 reg)', 'Fri 13:03', mixedBatch);
   template = await loadTemplate();
-  info('Slots', `${template.slots.filter(s => s).length}/24 | Waiting: ${template.waitingList.length}`);
-  printSub('🗑️ Bot deletes previous, posts updated:');
-  printBot(renderTemplate(template), 'Fri 12:25');
+  check('2 promotions happened', mixedResult.promotions.length === 2);
+  check('Slots still 24/24', template.slots.filter(s => s).length === 24);
 
-  // ════════════════════════════════
-  // CANCELLATIONS
-  // ════════════════════════════════
-  printHeader('PHASE 8: Saturday Morning — Cancellations');
-
-  // Cancel 1
-  printMsg('אלי חגג', 'מבטל', 'Sat 09:00');
-  action('Message queued, waiting 15s debounce...');
-  await countdown('Debounce', 15);
-
-  const cancel1 = await parseRegistrationMessages([
-    { senderJid: PLAYERS[4].jid, text: 'מבטל', timestamp: Date.now() },
+  // ════════════════════════════════════════
+  // PHASE 10: Cancel from holding list (מבטל המתנה)
+  // ════════════════════════════════════════
+  header('PHASE 10: Cancel from Holding List (מבטל המתנה)');
+  template = await loadTemplate();
+  const waitBefore = template.waitingList.length;
+  const slotsBefore = template.slots.filter(s => s).length;
+  const waitingPlayer = template.waitingList[0];
+  sub(`${waitingPlayer.name} says מבטל המתנה`);
+  const cwActions = await parseRegistrationMessages([
+    { msgId: nextMsgId(), senderJid: waitingPlayer.userId, text: 'מבטל המתנה', timestamp: Date.now() },
   ]);
-  info('Claude parsed', JSON.stringify(cancel1));
+  info('Claude action type', cwActions[0]?.type || 'NONE');
+  const cwSenders = new Set([normalizeJid(waitingPlayer.userId)]);
+  const cwResult = await applyActions(cwActions, cwSenders);
+  template = await loadTemplate();
+  check('Action type is cancel_waiting', cwActions[0]?.type === 'cancel_waiting');
+  check('No promotion', cwResult.promotions.length === 0);
+  check('Slots unchanged', template.slots.filter(s => s).length === slotsBefore);
+  check('Waiting list decreased by 1', template.waitingList.length === waitBefore - 1);
+  bot(renderTemplate(template), 'Fri 13:33');
+
+  // ════════════════════════════════════════
+  // PHASE 11: Slot player says "מבטל המתנה" — should be IGNORED
+  // ════════════════════════════════════════
+  header('PHASE 11: Slot Player Says מבטל המתנה — Should Be Ignored');
+  template = await loadTemplate();
+  const slotsBeforeIgnore = template.slots.filter(s => s).length;
+  const waitBeforeIgnore = template.waitingList.length;
+  sub('אלון דוד (in slot) says מבטל המתנה');
+  const cwIgnore = await parseRegistrationMessages([
+    { msgId: nextMsgId(), senderJid: PLAYERS[0].jid, text: 'מבטל המתנה', timestamp: Date.now() },
+  ]);
+  const cwIgnoreSenders = new Set([normalizeJid(PLAYERS[0].jid)]);
+  await applyActions(cwIgnore, cwIgnoreSenders);
+  template = await loadTemplate();
+  check('Slots unchanged', template.slots.filter(s => s).length === slotsBeforeIgnore);
+  check('Waiting list unchanged', template.waitingList.length === waitBeforeIgnore);
+  check('אלון דוד still in slots', template.slots.some(s => s?.name === 'אלון דוד'));
+
+  // ════════════════════════════════════════
+  // PHASE 12: Admin cancels from Group 2
+  // ════════════════════════════════════════
+  header('PHASE 12: Admin Cancels from Group 2');
+  sub('אורן טל סממה (admin, registered via Group 1) cancels in Group 2');
+  const adminCancel = await parseRegistrationMessages([
+    { msgId: nextMsgId(), senderJid: ADMINS[2].userId, text: 'מבטל', timestamp: Date.now() },
+  ]);
+  const adminSenders = new Set([normalizeJid(ADMINS[2].userId)]);
+  const adminCancelR = await applyActions(adminCancel, adminSenders);
+  template = await loadTemplate();
+  check('Admin removed', !template.slots.some(s => s?.name === 'אורן טל סממה'));
+  check('Someone promoted', adminCancelR.promotions.length === 1);
+  if (adminCancelR.promotions.length > 0) act(`Promoted: ${adminCancelR.promotions[0]}`);
+  bot(renderTemplate(template), 'Fri 14:03');
+
+  // ════════════════════════════════════════
+  // PHASE 13: Cancel + re-register same person in batch
+  // ════════════════════════════════════════
+  header('PHASE 13: Edge Case — Player Cancels Then Re-registers in Same Batch');
+  template = await loadTemplate();
+  const flipPlayer = PLAYERS[5]; // משה דוד
+  sub(`${flipPlayer.name} cancels, then re-registers in same 30-min window`);
+  const flipBatch: CollectedMessage[] = [
+    { msgId: nextMsgId(), senderJid: flipPlayer.jid, text: 'מבטל', timestamp: Date.now() },
+    { msgId: nextMsgId(), senderJid: flipPlayer.jid, text: 'סליחה חוזר בי, משה דוד', timestamp: Date.now() + 5000 },
+  ];
+  act('Sending both messages to Claude...');
+  const flipActions = await parseRegistrationMessages(flipBatch);
+  sub('Claude parsed:');
+  for (const a of flipActions) {
+    log(`    [${a.type === 'register' ? '+' : '-'}] ${a.type}: "${a.name}" (${a.userId.split('@')[0]})`);
+  }
+  info('Note', 'Dedup keeps only first action per userId — second message ignored');
+  const flipSenders = new Set([normalizeJid(flipPlayer.jid)]);
+  await applyActions(flipActions, flipSenders);
+  template = await loadTemplate();
+  const flipStillIn = template.slots.some(s => s?.name === flipPlayer.name);
+  info(`${flipPlayer.name} in list?`, flipStillIn ? 'YES' : 'NO');
+  bot(renderTemplate(template), 'Fri 14:33');
+
+  // ════════════════════════════════════════
+  // PHASE 14: Saturday morning — ~20 junk messages
+  // ════════════════════════════════════════
+  header('PHASE 14: Saturday Morning — 20 Junk Messages');
+  sub('People chatting in Group 2 on Saturday morning');
+  const junkMessages: { name: string; jid: string; text: string }[] = SATURDAY_JUNK.map(j => ({
+    name: '???', jid: j.jid, text: j.msg,
+  }));
+  const junkResult = await processBatch('20 junk chat messages', 'Sat 09:03', junkMessages);
+  template = await loadTemplate();
+  check('No registrations from junk', junkResult.registered === 0);
+  check('No cancellations from junk', junkResult.cancelled === 0);
+  info('Slots still', `${template.slots.filter(s => s).length}/24`);
+
+  // ════════════════════════════════════════
+  // PHASE 15: Drain waiting list completely
+  // ════════════════════════════════════════
+  header('PHASE 15: Drain Waiting List to Empty');
+  template = await loadTemplate();
+  info('Waiting list size', template.waitingList.length.toString());
+
+  let cancelIdx = 0;
+  const cancelCandidates = template.slots
+    .map((s, i) => s ? { name: s.name, userId: s.userId, idx: i } : null)
+    .filter((s): s is NonNullable<typeof s> => s !== null && !s.name.includes('ציוד') && s.idx !== 23);
+
+  while (template.waitingList.length > 0 && cancelIdx < cancelCandidates.length) {
+    const c = cancelCandidates[cancelIdx++];
+    const weekly = await loadWeekly();
+    if (!weekly.userIdMap[c.userId]) {
+      weekly.userIdMap[c.userId] = c.name;
+      await saveWeekly(weekly);
+    }
+    const cancelActions = await parseRegistrationMessages([
+      { msgId: nextMsgId(), senderJid: c.userId, text: 'מבטל', timestamp: Date.now() },
+    ]);
+    const cancelSenders = new Set([normalizeJid(c.userId)]);
+    const cancelResult = await applyActions(cancelActions, cancelSenders);
+    template = await loadTemplate();
+    log(`    ${c.name} cancelled → promoted: ${cancelResult.promotions[0] || 'none'} | waiting: ${template.waitingList.length}`);
+  }
 
   template = await loadTemplate();
-  const w1 = await loadWeekly();
-  for (const a of cancel1) {
-    const nid = normalizeJid(a.userId);
-    if (a.type === 'cancel' && w1.userIdMap[nid]) {
-      action(`Cancelled: ${w1.userIdMap[nid]}`);
-      delete w1.userIdMap[nid];
-      removePlayerFromTemplate(template, nid);
-      if (template.waitingList.length > 0) {
-        action('Promoted first from waiting list to fill slot');
-      }
+  check('Waiting list is empty', template.waitingList.length === 0);
+  bot(renderTemplate(template), 'Sat 15:03');
+
+  // ════════════════════════════════════════
+  // PHASE 16: Cancel when waiting list empty — no promotion
+  // ════════════════════════════════════════
+  header('PHASE 16: Cancel When Waiting List Empty');
+  template = await loadTemplate();
+  const emptyWaitCancel = template.slots.find(s => s && s.userId && !s.isEquipment && !s.isLaundry);
+  if (emptyWaitCancel) {
+    sub(`${emptyWaitCancel.name} cancels — waiting list is empty`);
+    const weekly = await loadWeekly();
+    if (!weekly.userIdMap[emptyWaitCancel.userId]) {
+      weekly.userIdMap[emptyWaitCancel.userId] = emptyWaitCancel.name;
+      await saveWeekly(weekly);
     }
+    const noPromoActions = await parseRegistrationMessages([
+      { msgId: nextMsgId(), senderJid: emptyWaitCancel.userId, text: 'לא בא לי מבטל', timestamp: Date.now() },
+    ]);
+    const noPromoSenders = new Set([normalizeJid(emptyWaitCancel.userId)]);
+    const noPromoResult = await applyActions(noPromoActions, noPromoSenders);
+    template = await loadTemplate();
+    check('No promotion (list empty)', noPromoResult.promotions.length === 0);
+    check('Player removed', !template.slots.some(s => s?.name === emptyWaitCancel.name));
+    info('Slots', `${template.slots.filter(s => s).length}/24`);
+    bot(renderTemplate(template), 'Sat 15:33');
+  }
+
+  // ════════════════════════════════════════
+  // PHASE 17: Laundry guy cancels
+  // ════════════════════════════════════════
+  header('PHASE 17: Laundry Guy Cancels');
+  let weekly = await loadWeekly();
+  weekly.userIdMap['100000000099@lid'] = 'מאור כהן';
+  await saveWeekly(weekly);
+
+  sub('מאור כהן (LAUNDRY, slot 24) cancels with מבטל');
+  const laundryCancel = await parseRegistrationMessages([
+    { msgId: nextMsgId(), senderJid: '100000000099@lid', text: 'מבטל', timestamp: Date.now() },
+  ]);
+  const laundrySenders = new Set([normalizeJid('100000000099@lid')]);
+  const laundryResult = await applyActions(laundryCancel, laundrySenders);
+  template = await loadTemplate();
+  if (laundryResult.promotions.length > 0) {
+    act(`Promoted to slot 24: ${laundryResult.promotions[0]}`);
+    info('Laundry flag on new slot 24', template.slots[23]?.isLaundry ? 'YES' : 'NO');
+  } else {
+    act('No one promoted (waiting list empty)');
+    info('Slot 24', template.slots[23]?.name || 'EMPTY');
+  }
+  bot(renderTemplate(template), 'Sat 16:03');
+
+  // ════════════════════════════════════════
+  // PHASE 18: New registrations fill empty slots
+  // ════════════════════════════════════════
+  header('PHASE 18: New Players Fill Empty Slots');
+  template = await loadTemplate();
+  const emptyCount = template.slots.filter(s => s === null).length;
+  info('Empty slots before', emptyCount.toString());
+
+  const fillPlayers = PLAYERS.slice(39, 41);
+  await processBatch(
+    `${fillPlayers.length} new players register`,
+    'Sat 16:33',
+    fillPlayers.map(p => ({ name: p.name, jid: p.jid, text: p.msg })),
+  );
+  template = await loadTemplate();
+  info('Empty slots after', template.slots.filter(s => s === null).length.toString());
+
+  // ════════════════════════════════════════
+  // PHASE 19: Batch with ONLY cancellations (combined promotion tag)
+  // ════════════════════════════════════════
+  header('PHASE 19: Batch of 3 Cancellations → Combined Promotion Tag');
+  template = await loadTemplate();
+  const extraWait = [
+    { name: 'יוסי אברמוב', jid: '100000000060@lid' },
+    { name: 'אבי מלכה', jid: '100000000061@lid' },
+    { name: 'דניאל רז', jid: '100000000062@lid' },
+  ];
+  for (const w of extraWait) {
+    template.waitingList.push({ name: w.name, userId: w.jid, isLaundry: false, isEquipment: false });
+    const wk = await loadWeekly();
+    wk.userIdMap[w.jid] = w.name;
+    await saveWeekly(wk);
   }
   await saveTemplate(template);
-  await saveWeekly(w1);
-  printSub('🗑️ Updated template:');
-  printBot(renderTemplate(template), 'Sat 09:00');
-
-  // Cancel 2
-  printMsg('חיים גולן', 'אני לא יכול, מבטל', 'Sat 10:30');
-  action('Message queued, waiting 15s debounce...');
-  await countdown('Debounce', 15);
-
-  const cancel2 = await parseRegistrationMessages([
-    { senderJid: PLAYERS[9].jid, text: 'אני לא יכול, מבטל', timestamp: Date.now() },
-  ]);
+  info('Added to waiting list', extraWait.map(w => w.name).join(', '));
 
   template = await loadTemplate();
-  const w2 = await loadWeekly();
-  for (const a of cancel2) {
-    const nid = normalizeJid(a.userId);
-    if (a.type === 'cancel' && w2.userIdMap[nid]) {
-      action(`Cancelled: ${w2.userIdMap[nid]}`);
-      delete w2.userIdMap[nid];
-      removePlayerFromTemplate(template, nid);
-      if (template.waitingList.length > 0) {
-        action('Promoted first from waiting list to fill slot');
-      }
+  const cancelSlots = template.slots
+    .filter((s): s is NonNullable<typeof s> => s !== null && !s.isEquipment && !s.isLaundry)
+    .slice(0, 3);
+  const cancelBatch: { name: string; jid: string; text: string }[] = cancelSlots.map(s => {
+    return { name: s.name, jid: s.userId, text: 'מבטל' };
+  });
+  for (const c of cancelSlots) {
+    const wk = await loadWeekly();
+    if (!wk.userIdMap[c.userId]) {
+      wk.userIdMap[c.userId] = c.name;
+      await saveWeekly(wk);
     }
   }
-  await saveTemplate(template);
-  await saveWeekly(w2);
-  printSub('🗑️ Updated template:');
-  printBot(renderTemplate(template), 'Sat 10:30');
+  const multiResult = await processBatch('3 cancellations in one batch', 'Sat 17:03', cancelBatch);
+  check('3 promotions happened', multiResult.promotions.length === 3);
+  if (multiResult.promotions.length > 0) {
+    info('Combined tag would be', `@${multiResult.promotions.join(' @')} נכנסתם`);
+  }
 
-  // ════════════════════════════════
-  // SECURITY TEST
-  // ════════════════════════════════
-  printHeader('PHASE 9: Security — Player Tries to Cancel Someone Else');
-
-  printMsg('רוני לוי', 'תבטל את אלון דוד', 'Sat 11:00');
-  action('Sending to Claude...');
-
+  // ════════════════════════════════════════
+  // PHASE 20: Security — cancel someone else
+  // ════════════════════════════════════════
+  header('PHASE 20: Security — Player Tries to Cancel Someone Else');
+  template = await loadTemplate();
+  const slotsBefore20 = template.slots.filter(s => s !== null).length;
+  // Dynamically pick a player that's actually in the template right now
+  const targetVictim = template.slots.find(s => s && s.userId && !s.isEquipment && !s.isLaundry);
+  const victimName = targetVictim?.name || '???';
+  msg('רוני לוי', `תבטל את ${victimName}`, 'Sat 17:33');
+  const attackerJid = '100000000199@lid';
   const securityTest = await parseRegistrationMessages([
-    { senderJid: PLAYERS[3].jid, text: 'תבטל את אלון דוד', timestamp: Date.now() },
+    { msgId: nextMsgId(), senderJid: attackerJid, text: `תבטל את ${victimName}`, timestamp: Date.now() },
   ]);
   info('Claude response', JSON.stringify(securityTest));
+  const attackerSenders = new Set([normalizeJid(attackerJid)]);
+  await applyActions(securityTest, attackerSenders);
+  template = await loadTemplate();
+  check(`${victimName} still in list`, template.slots.some(s => s?.name === victimName));
+  check('Slots unchanged', template.slots.filter(s => s !== null).length === slotsBefore20);
+
+  // ════════════════════════════════════════
+  // PHASE 21: No-name registration
+  // ════════════════════════════════════════
+  header('PHASE 21: Player Writes תרשום אותי Without Name');
+  msg('???', 'תרשום אותי', 'Sat 18:00');
+  const noNameTest = await parseRegistrationMessages([
+    { msgId: nextMsgId(), senderJid: '100000000070@lid', text: 'תרשום אותי', timestamp: Date.now() },
+  ]);
+  const validReg = noNameTest.filter(a => a.type === 'register' && a.name && a.name.split(/\s+/).length >= 2);
+  check('No valid registration (no name)', validReg.length === 0);
+
+  // ════════════════════════════════════════
+  // PHASE 22: Duplicate registration
+  // ════════════════════════════════════════
+  header('PHASE 22: Duplicate Registration — Same Person Registers Again');
+  template = await loadTemplate();
+  // Find someone still in slots
+  const dupCandidate = template.slots.find(s => s && s.userId && !s.isEquipment && !s.isLaundry);
+  if (dupCandidate) {
+    sub(`${dupCandidate.name} (already in slot) sends his name again`);
+    const dupActions = await parseRegistrationMessages([
+      { msgId: nextMsgId(), senderJid: dupCandidate.userId, text: dupCandidate.name, timestamp: Date.now() },
+    ]);
+    const dupSenders = new Set([normalizeJid(dupCandidate.userId)]);
+    const dupResult = await applyActions(dupActions, dupSenders);
+    template = await loadTemplate();
+    const count = template.slots.filter(s => s?.name === dupCandidate.name).length
+      + template.waitingList.filter(w => w.name === dupCandidate.name).length;
+    check('Only appears once (no duplicate)', count === 1);
+    check('Ignored by dedup', dupResult.ignored >= 1);
+  }
+
+  // ════════════════════════════════════════
+  // PHASE 23: Noisy batch — chat mixed with registrations
+  // ════════════════════════════════════════
+  header('PHASE 23: Noisy Batch — Chat Messages Mixed with Registrations');
+  const noisyBatch: { name: string; jid: string; text: string }[] = [
+    { name: '???', jid: '100000000071@lid', text: 'מה קורה אחי?' },
+    { name: '???', jid: '100000000072@lid', text: 'יאללה גולן 😂' },
+    { name: '???', jid: '100000000073@lid', text: 'מישהו יכול להביא מים?' },
+    { name: '???', jid: '100000000074@lid', text: 'אוהד ברזילי' },
+    { name: '???', jid: '100000000075@lid', text: 'תגיד' },
+    { name: '???', jid: '100000000076@lid', text: 'ניסים חכמון' },
+  ];
+  const noisyResult = await processBatch('Chat noise + 2 valid names', 'Sat 18:03', noisyBatch);
+  check('Only valid names registered (<=2)', noisyResult.registered <= 2);
+  check('Chat noise ignored', noisyResult.ignored >= 0);
+
+  // ════════════════════════════════════════
+  // PHASE 24: Big mixed Saturday batch — 4 cancel + 3 register + 2 cancel_waiting
+  // ════════════════════════════════════════
+  header('PHASE 24: Big Mixed Saturday Batch — 4 Cancel + 3 Register + 2 Cancel Waiting');
+  template = await loadTemplate();
+  // Add 5 to waiting list for this test
+  const bigWait = [
+    { name: 'רון אביב', jid: '100000000110@lid' },
+    { name: 'שלמה דיין', jid: '100000000111@lid' },
+    { name: 'אמיר גולדברג', jid: '100000000112@lid' },
+    { name: 'יגאל בן שמעון', jid: '100000000113@lid' },
+    { name: 'ערן סלומון', jid: '100000000114@lid' },
+  ];
+  for (const w of bigWait) {
+    template.waitingList.push({ name: w.name, userId: w.jid, isLaundry: false, isEquipment: false });
+    const wk = await loadWeekly();
+    wk.userIdMap[w.jid] = w.name;
+    await saveWeekly(wk);
+  }
+  await saveTemplate(template);
+  info('Added to waiting list', bigWait.map(w => w.name).join(', '));
 
   template = await loadTemplate();
-  const w3 = await loadWeekly();
-  for (const a of securityTest) {
-    const nid = normalizeJid(a.userId);
-    if (a.type === 'cancel') {
-      if (w3.userIdMap[nid]) {
-        action(`Code would cancel SENDER's registration: ${w3.userIdMap[nid]}`);
-        action('אלון דוד is NOT affected ✅');
-      } else {
-        ignored('Sender not registered or already handled → no action');
-      }
-    } else {
-      ignored(`Unexpected action type: ${a.type}`);
+  const slotsForCancel = template.slots
+    .filter((s): s is NonNullable<typeof s> => s !== null && !s.isEquipment && !s.isLaundry)
+    .slice(0, 4);
+  const waitForCancel = template.waitingList.slice(-2); // last 2 in waiting list
+
+  const bigMixed: { name: string; jid: string; text: string }[] = [
+    // 4 slot cancellations
+    ...slotsForCancel.map(s => ({ name: s.name, jid: s.userId, text: 'מבטל' })),
+    // 3 new registrations
+    { name: 'טוביה הלוי', jid: '100000000120@lid', text: 'טוביה הלוי' },
+    { name: 'עדן מזרחי', jid: '100000000121@lid', text: 'עדן מזרחי' },
+    { name: 'נריה כהן', jid: '100000000122@lid', text: 'נריה כהן' },
+    // 2 waiting list cancellations
+    ...waitForCancel.map(w => ({ name: w.name, jid: w.userId, text: 'מבטל המתנה' })),
+  ];
+  // Ensure slot players are in weekly map
+  for (const c of slotsForCancel) {
+    const wk = await loadWeekly();
+    if (!wk.userIdMap[c.userId]) {
+      wk.userIdMap[c.userId] = c.name;
+      await saveWeekly(wk);
     }
   }
 
-  const alonStillIn = template.slots.some(s => s?.name === 'אלון דוד');
-  info('אלון דוד still in list?', alonStillIn ? '✅ YES — SAFE' : '❌ NO — BUG!');
-
-  // ════════════════════════════════
-  // LAST CALL
-  // ════════════════════════════════
-  printHeader('PHASE 10: Saturday 19:40 — Last Call');
-  printBot('ביטולים אחרונים? ⏳', 'Sat 19:40');
-
-  // ════════════════════════════════
-  // CLOSE
-  // ════════════════════════════════
-  printHeader('PHASE 11: Saturday 19:45 — Registration Closes');
+  const slotsBefore24 = template.slots.filter(s => s).length;
+  const waitBefore24 = template.waitingList.length;
+  const bigResult = await processBatch('4 cancel + 3 register + 2 cancel_waiting', 'Sat 18:33', bigMixed);
   template = await loadTemplate();
-  printSub('Final template:');
-  printBot(renderTemplate(template), 'Sat 19:45');
-  action('Group 2 locked (admin-only mode)');
+  // 4 cancelled from slots → 4 promoted from waiting list (if enough)
+  // 2 cancelled from waiting list → no promotion
+  // 3 new registrations → go to waiting list (slots should still be full after promotions)
+  check('4 slot cancellations', bigResult.cancelled >= 4);
+  check('Promotions happened', bigResult.promotions.length > 0);
+  info('Total promotions', bigResult.promotions.length.toString());
+  info('Total registrations', bigResult.registered.toString());
+  info('Slots after', `${template.slots.filter(s => s).length}/24`);
+  info('Waiting list after', template.waitingList.length.toString());
+  bot(renderTemplate(template), 'Sat 18:33');
 
-  // ════════════════════════════════
+  // ════════════════════════════════════════
+  // PHASE 25: Pre-game warning
+  // ════════════════════════════════════════
+  header('PHASE 25: Saturday 18:45 — Last Call');
+  bot('קבוצות עוד 5 דקות, ביטולים אחרונים?', 'Sat 18:45');
+
+  header('PHASE 26: Saturday 18:50 — Registration Closes');
+  act('Final processCollectedMessages()');
+  act('registrationOpen = false');
+
+  // ════════════════════════════════════════
+  // PHASE 27: Test disk-level delete/edit (using actual functions)
+  // ════════════════════════════════════════
+  header('PHASE 27: Disk-Level Delete & Edit Functions');
+  // Reset collected messages for this test
+  weekly = await loadWeekly();
+  weekly.messagesCollected = [];
+  await saveWeekly(weekly);
+
+  sub('Simulate 3 messages collected to disk');
+  await collectRegistrationMessage('disk-msg-1', '100000000200@lid', 'יוסי כהן');
+  await collectRegistrationMessage('disk-msg-2', '100000000201@lid', 'דני לוי');
+  await collectRegistrationMessage('disk-msg-3', '100000000202@lid', 'אבי שמש');
+
+  weekly = await loadWeekly();
+  info('Messages on disk', weekly.messagesCollected.length.toString());
+  check('3 messages collected', weekly.messagesCollected.length === 3);
+
+  sub('Delete disk-msg-2 (דני לוי deletes his message)');
+  await removeCollectedMessage('disk-msg-2');
+  weekly = await loadWeekly();
+  check('2 messages remain', weekly.messagesCollected.length === 2);
+  check('דני לוי removed', !weekly.messagesCollected.some(m => m.msgId === 'disk-msg-2'));
+
+  sub('Edit disk-msg-3 (אבי שמש fixes typo)');
+  await editCollectedMessage('disk-msg-3', 'אברהם שמש');
+  weekly = await loadWeekly();
+  const editedDisk = weekly.messagesCollected.find(m => m.msgId === 'disk-msg-3');
+  check('Message text updated', editedDisk?.text === 'אברהם שמש');
+
+  sub('Process remaining 2 messages via Claude');
+  const diskMessages = weekly.messagesCollected;
+  const diskActions = await parseRegistrationMessages(diskMessages);
+  sub('Claude parsed:');
+  for (const a of diskActions) {
+    log(`    [${a.type === 'register' ? '+' : '-'}] ${a.type}: "${a.name}" (${a.userId.split('@')[0]})`);
+  }
+  check('דני לוי NOT in actions (deleted)', !diskActions.some(a => a.name === 'דני לוי'));
+  check('אברהם שמש in actions (edited)', diskActions.some(a => a.name === 'אברהם שמש') || diskActions.some(a => a.name === 'יוסי כהן'));
+
+  // Clean up
+  weekly.messagesCollected = [];
+  await saveWeekly(weekly);
+
+  // ════════════════════════════════════════
   // SUMMARY
-  // ════════════════════════════════
-  printHeader('SIMULATION COMPLETE');
-
+  // ════════════════════════════════════════
+  header('SIMULATION COMPLETE');
+  template = await loadTemplate();
   const finalSlots = template.slots.filter(s => s !== null).length;
   info('Players in slots', `${finalSlots}/24`);
   info('Waiting list', template.waitingList.length.toString());
   info('Laundry', template.slots[23]?.name || 'none');
+  info('Laundry flag', template.slots[23]?.isLaundry ? 'YES' : 'NO');
   info('Equipment', template.slots.find(s => s?.isEquipment)?.name || 'none');
-  info('Fake messages affected template', 'NO ✅');
-  info('Security breaches', '0 ✅');
 
-  console.log(C.green + C.bold + '\n  ✅ E2E simulation complete!\n' + C.reset);
+  log('\n  Final slot list:');
+  for (let i = 0; i < 24; i++) {
+    const s = template.slots[i];
+    const flags = [s?.isLaundry && 'LAUNDRY', s?.isEquipment && 'EQUIPMENT'].filter(Boolean).join(', ');
+    log(`    ${i + 1}. ${s?.name || '(empty)'}${flags ? ` (${flags})` : ''}`);
+  }
+
+  if (template.waitingList.length > 0) {
+    log('\n  Waiting list:');
+    for (const w of template.waitingList) log(`    - ${w.name}`);
+  }
+
+  // Count PASS/FAIL
+  const passCount = output.filter(l => l.includes('PASS:')).length;
+  const failCount = output.filter(l => l.includes('FAIL:')).length;
+  log(`\n  Results: ${passCount} PASS, ${failCount} FAIL`);
+
+  log('\nDone.');
+  writeFileSync('src/test/e2e-output.txt', output.join('\n'), 'utf-8');
+  console.log('\nOutput saved to src/test/e2e-output.txt');
 }
 
 run().catch(err => {

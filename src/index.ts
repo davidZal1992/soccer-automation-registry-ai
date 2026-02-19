@@ -10,7 +10,7 @@ import { logger } from './utils/logger.js';
 import { config } from './config/env.js';
 import { useJsonAuthState } from './auth/authState.js';
 import { handleCredsUpdate } from './handlers/credentials.js';
-import { handleMessagesUpsert } from './handlers/message.js';
+import { handleMessagesUpsert, handleMessagesDelete, handleMessagesUpdate } from './handlers/message.js';
 import { setupScheduler } from './bot/scheduler.js';
 
 let currentSock: WASocket | null = null;
@@ -72,6 +72,8 @@ async function startSocket(): Promise<void> {
   });
 
   sock.ev.on('messages.upsert', handleMessagesUpsert(sock));
+  sock.ev.on('messages.delete', handleMessagesDelete());
+  sock.ev.on('messages.update', handleMessagesUpdate());
 
   logger.info('Starting WhatsApp bot...');
 }
