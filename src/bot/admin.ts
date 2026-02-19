@@ -240,6 +240,44 @@ export async function executeAdminCommand(
       break;
     }
 
+    case 'remove_player': {
+      // Find player by name or by role (equipment/laundry)
+      let rpSlotIdx = -1;
+      let rpWaitIdx = -1;
+
+      if (command.name) {
+        rpSlotIdx = template.slots.findIndex(s => s && s.name === command.name);
+        if (rpSlotIdx === -1) rpWaitIdx = template.waitingList.findIndex(w => w.name === command.name);
+      } else if (command.role === 'equipment') {
+        rpSlotIdx = template.slots.findIndex(s => s && s.isEquipment);
+        if (rpSlotIdx === -1) rpWaitIdx = template.waitingList.findIndex(w => w.isEquipment);
+      } else if (command.role === 'laundry') {
+        rpSlotIdx = template.slots.findIndex(s => s && s.isLaundry);
+        if (rpSlotIdx === -1) rpWaitIdx = template.waitingList.findIndex(w => w.isLaundry);
+      }
+
+      if (rpSlotIdx !== -1) {
+        const removedPlayer = template.slots[rpSlotIdx]!;
+        template.slots[rpSlotIdx] = null;
+        const promoted = promoteFromWaitingList(template, rpSlotIdx);
+        if (promoted?.userId) {
+          await sock.sendMessage(config.groupJids.players, {
+            text: `@${promoted.userId.replace(/@.*/, '')} נכנסת`,
+            mentions: [promoted.userId],
+          });
+        }
+        logger.info({ name: removedPlayer.name, role: command.role }, 'Removed player');
+      } else if (rpWaitIdx !== -1) {
+        const removedPlayer = template.waitingList.splice(rpWaitIdx, 1)[0];
+        logger.info({ name: removedPlayer.name, role: command.role }, 'Removed player from waiting list');
+      } else {
+        const label = command.name || (command.role === 'equipment' ? 'ציוד' : 'כביסה');
+        await sock.sendMessage(chatJid, { text: `${label} לא נמצא ברשימה` });
+        return;
+      }
+      break;
+    }
+
     case 'set_warmup_time': {
       template.warmupTime = command.time;
       break;

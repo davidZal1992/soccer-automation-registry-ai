@@ -99,11 +99,16 @@ Supported commands:
 7. "show_template" — show the current registration template. Examples: "תשלח תרשימה", "תראה רשימה", "שלח את הרשימה", "מה הרשימה", "תראה מצב"
 8. "add_admin" — add a new admin. The message will @mention someone. Must include a name (2+ words). Examples: "תוסיף אדמין דוד כהן", "תעשה אותו אדמין"
 9. "remove_admin" — remove an admin. The message will @mention someone. Examples: "תוריד אדמין", "תוריד אותו מאדמין"
-10. "override_template" — admin wants to replace the current template with a pasted one. Examples: "תשתמש ברשימה המעודכנת:", "תחליף רשימה", "קח את הרשימה הזאת". The message will contain a full template with numbered player names.
+10. "remove_player" — remove a player from the registration list. Can be by name, by role, or both. Examples:
+    - By name: "תוריד את דוד כהן", "תמחק את יוסי לוי", "תוציא את דוד כהן מהרשימה"
+    - By role: "תוריד ציוד", "תוריד כביסה", "תמחק את הציוד", "תוריד את הכביסה"
+    - Either way works. If a name is mentioned, include it. If only a role (ציוד/כביסה) is mentioned, include the role.
+11. "override_template" — admin wants to replace the current template with a pasted one. Examples: "תשתמש ברשימה המעודכנת:", "תחליף רשימה", "קח את הרשימה הזאת". The message will contain a full template with numbered player names.
 
 Return ONLY a JSON object with these fields:
 - "type": one of the command types above, or null if unrecognized
-- "name": extracted full name (for set_equipment, set_laundry, add_admin), or null
+- "name": extracted full name (for set_equipment, set_laundry, add_admin, remove_player), or null
+- "role": "equipment" or "laundry" (for remove_player when removing by role), or null
 - "time": extracted time in HH:MM format (for set_warmup_time, set_start_time), or null
 
 If the message does not clearly match ANY command above, return: {"type":null}
@@ -112,6 +117,7 @@ Do NOT act as a chatbot. Do NOT answer questions. Only classify commands.`;
 interface LLMCommandResult {
   type: string | null;
   name?: string | null;
+  role?: 'equipment' | 'laundry' | null;
   time?: string | null;
 }
 
@@ -187,6 +193,19 @@ export async function parseAdminCommandWithLLM(
       case 'remove_admin': {
         if (mentionedJids.length === 0) return null;
         return { type: 'remove_admin', jid: mentionedJids[0] };
+      }
+
+      case 'remove_player': {
+        const name = result.name?.trim() || undefined;
+        const role = result.role || undefined;
+        // Must have either a valid full name or a role
+        if (name && name.split(/\s+/).length >= 2) {
+          return { type: 'remove_player', name, role };
+        }
+        if (role === 'equipment' || role === 'laundry') {
+          return { type: 'remove_player', role };
+        }
+        return null;
       }
 
       case 'override_template':

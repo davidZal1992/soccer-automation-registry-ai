@@ -52,4 +52,5 @@ export type AdminCommand =
   | { type: 'show_template' }
   | { type: 'add_admin'; name: string; jid: string }
   | { type: 'remove_admin'; jid: string }
+  | { type: 'remove_player'; name?: string; role?: 'equipment' | 'laundry' }
   | { type: 'override_template'; rawText: string };
