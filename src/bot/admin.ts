@@ -348,8 +348,17 @@ export async function executeAdminCommand(
 
 function parseOverrideTemplate(
   rawText: string,
-  _currentTemplate: TemplateState,
+  currentTemplate: TemplateState,
 ): { slots: (PlayerSlot | null)[]; waitingList: PlayerSlot[] } | null {
+  // Build name → userId map from existing template to preserve linked userIds
+  const nameToUserId = new Map<string, string>();
+  for (const s of currentTemplate.slots) {
+    if (s && s.userId) nameToUserId.set(s.name, s.userId);
+  }
+  for (const w of currentTemplate.waitingList) {
+    if (w.userId) nameToUserId.set(w.name, w.userId);
+  }
+
   const lines = rawText.split('\n');
   const slots: (PlayerSlot | null)[] = new Array(24).fill(null);
   const waitingList: PlayerSlot[] = [];
@@ -372,7 +381,7 @@ function parseOverrideTemplate(
       if (inWaitingList && trimmed && !trimmed.startsWith('---')) {
         const cleanName = trimmed.replace(/\(.*?\)/g, '').replace(/\*/g, '').trim();
         if (cleanName && cleanName.split(/\s+/).length >= 2) {
-          waitingList.push({ name: cleanName, userId: '', isLaundry: false, isEquipment: false });
+          waitingList.push({ name: cleanName, userId: nameToUserId.get(cleanName) || '', isLaundry: false, isEquipment: false });
           foundAny = true;
         }
       }
@@ -394,10 +403,10 @@ function parseOverrideTemplate(
 
     const slotIndex = num - 1;
     if (slotIndex >= 0 && slotIndex < 24 && !inWaitingList) {
-      slots[slotIndex] = { name, userId: '', isLaundry, isEquipment };
+      slots[slotIndex] = { name, userId: nameToUserId.get(name) || '', isLaundry, isEquipment };
       foundAny = true;
     } else if (inWaitingList) {
-      waitingList.push({ name, userId: '', isLaundry: false, isEquipment: false });
+      waitingList.push({ name, userId: nameToUserId.get(name) || '', isLaundry: false, isEquipment: false });
       foundAny = true;
     }
   }

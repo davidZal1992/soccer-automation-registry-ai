@@ -1,7 +1,7 @@
 import type { WASocket, proto } from '@whiskeysockets/baileys';
 import { loadWeekly, saveWeekly, loadTemplate, saveTemplate } from './state.js';
 import { renderTemplate } from './template.js';
-import { addPlayerToTemplate, removePlayerFromTemplate } from './admin.js';
+import { addPlayerToTemplate, removePlayerFromTemplate, promoteFromWaitingList } from './admin.js';
 import { parseRegistrationMessages } from './claude.js';
 import { normalizeJid } from '../utils/helpers.js';
 import { config } from '../config/env.js';
@@ -121,9 +121,14 @@ async function processMessages(
         continue;
       }
       // "מבטל המתנה" — only remove from the waiting/holding list, no promotion
-      const waitIndex = template.waitingList.findIndex(
+      let waitIndex = template.waitingList.findIndex(
         w => normalizeJid(w.userId) === normalizedId,
       );
+      // Fallback: match by name (for overridden templates with empty userIds)
+      if (waitIndex === -1 && weekly.userIdMap[normalizedId]) {
+        const playerName = weekly.userIdMap[normalizedId];
+        waitIndex = template.waitingList.findIndex(w => !w.userId && w.name === playerName);
+      }
       if (waitIndex === -1) continue; // not in holding list, ignore
       template.waitingList.splice(waitIndex, 1);
       delete weekly.userIdMap[normalizedId];
@@ -134,14 +139,35 @@ async function processMessages(
         continue;
       }
       // Check both weekly map and template directly (player may have been added via Group 1)
-      const inWeekly = !!weekly.userIdMap[normalizedId];
+      const playerName = weekly.userIdMap[normalizedId];
+      const inWeekly = !!playerName;
       const inTemplate = template.slots.some(s => s && normalizeJid(s.userId) === normalizedId)
         || template.waitingList.some(w => normalizeJid(w.userId) === normalizedId);
-      if (!inWeekly && !inTemplate) continue; // not registered, nothing to cancel
+      // Fallback: check by name in template (for overridden templates with empty userIds)
+      const inTemplateByName = !inTemplate && playerName
+        ? template.slots.some(s => s && !s.userId && s.name === playerName)
+          || template.waitingList.some(w => !w.userId && w.name === playerName)
+        : false;
+      if (!inWeekly && !inTemplate && !inTemplateByName) continue;
       delete weekly.userIdMap[normalizedId];
-      const { promoted } = removePlayerFromTemplate(template, normalizedId);
-      if (promoted?.userId) {
-        promotedPlayers.push({ name: promoted.name, userId: promoted.userId });
+      if (inTemplate) {
+        const { promoted } = removePlayerFromTemplate(template, normalizedId);
+        if (promoted?.userId) {
+          promotedPlayers.push({ name: promoted.name, userId: promoted.userId });
+        }
+      } else if (inTemplateByName && playerName) {
+        // Remove by name — find slot or waiting list entry
+        const slotIdx = template.slots.findIndex(s => s && !s.userId && s.name === playerName);
+        if (slotIdx !== -1) {
+          template.slots[slotIdx] = null;
+          const promoted = promoteFromWaitingList(template, slotIdx);
+          if (promoted?.userId) {
+            promotedPlayers.push({ name: promoted.name, userId: promoted.userId });
+          }
+        } else {
+          const wIdx = template.waitingList.findIndex(w => !w.userId && w.name === playerName);
+          if (wIdx !== -1) template.waitingList.splice(wIdx, 1);
+        }
       }
     }
   }

@@ -121,6 +121,8 @@ async function handleGroup2Message(
   botJid: string,
   botLid?: string,
 ): Promise<void> {
+  logger.info({ senderJid, text: text.substring(0, 50) }, 'Group 2 message received');
+
   const botMentioned = isBotMentioned(msg, botJid, botLid);
 
   // Admin + @mention commands
