@@ -15,31 +15,11 @@ function scheduleSaturdayTimers(getSock: () => WASocket, warmupTime: string): vo
   const now = new Date();
   const israelNow = new Date(now.toLocaleString('en-US', { timeZone: tz }));
 
-  // 30 min before warmup: warning message
-  const warningTime = new Date(israelNow);
-  warningTime.setHours(warmH, warmM - 30, 0, 0);
-
-  // 25 min before warmup: close registration
+  // 2 hours before warmup: close registration, process last messages
   const closeTime = new Date(israelNow);
-  closeTime.setHours(warmH, warmM - 25, 0, 0);
+  closeTime.setHours(warmH - 2, warmM, 0, 0);
 
-  const msUntilWarning = warningTime.getTime() - israelNow.getTime();
   const msUntilClose = closeTime.getTime() - israelNow.getTime();
-
-  if (msUntilWarning > 0) {
-    setTimeout(async () => {
-      try {
-        const sock = getSock();
-        await sock.sendMessage(config.groupJids.players, {
-          text: 'קבוצות עוד 5 דקות, ביטולים אחרונים?',
-        });
-        logger.info('Sent last cancellations warning');
-      } catch (error) {
-        logger.error({ error }, 'Failed to send warning');
-      }
-    }, msUntilWarning);
-    logger.info({ time: `${warmH}:${String(warmM - 30).padStart(2, '0')}` }, 'Scheduled 30-min warning');
-  }
 
   if (msUntilClose > 0) {
     setTimeout(async () => {
@@ -49,12 +29,12 @@ function scheduleSaturdayTimers(getSock: () => WASocket, warmupTime: string): vo
         const t = await loadTemplate();
         t.registrationOpen = false;
         await saveTemplate(t);
-        logger.info('Closed registration');
+        logger.info('Closed registration (2h before warmup)');
       } catch (error) {
         logger.error({ error }, 'Failed to close registration');
       }
     }, msUntilClose);
-    logger.info({ time: `${warmH}:${String(warmM - 25).padStart(2, '0')}` }, 'Scheduled registration close');
+    logger.info({ time: `${warmH - 2}:${String(warmM).padStart(2, '0')}` }, 'Scheduled registration close (2h before warmup)');
   }
 }
 
