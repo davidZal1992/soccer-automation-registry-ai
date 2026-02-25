@@ -26,6 +26,8 @@ async function startSocket(): Promise<void> {
   const { state, saveCreds } = await useJsonAuthState('./data/auth');
 
   const sock = makeWASocket({
+    version: [2, 3000, 1033893291],
+    browser: ['SoccerBot', 'Chrome', '145.0.0'],
     logger,
     auth: {
       creds: state.creds,
