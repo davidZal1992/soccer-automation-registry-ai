@@ -16,6 +16,24 @@ import {
 } from '../bot/testRegistration.js';
 import { logger } from '../utils/logger.js';
 
+/**
+ * WhatsApp message edits arrive as a new messages.upsert event (not messages.update).
+ * They carry a protocolMessage with type=14 (MESSAGE_EDIT) that contains the original
+ * message key and the new text content.
+ */
+function getEditInfo(msg: WAMessage): { originalId: string; newText: string } | null {
+  const proto = msg.message?.protocolMessage;
+  // type 14 = MESSAGE_EDIT
+  if (proto && (proto.type as number) === 14 && proto.key?.id) {
+    const newText =
+      proto.editedMessage?.conversation ||
+      proto.editedMessage?.extendedTextMessage?.text ||
+      '';
+    if (newText) return { originalId: proto.key.id, newText };
+  }
+  return null;
+}
+
 function getMentionedJids(msg: WAMessage, botJid: string, botLid?: string): string[] {
   const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
   const normalizedBot = normalizeJid(botJid);
@@ -44,6 +62,20 @@ export function handleMessagesUpsert(sock: WASocket) {
         if (!chatJid) continue;
 
         const senderJid = normalizeJid(getSenderJid(msg));
+
+        // Detect WhatsApp edits — come as messages.upsert with protocolMessage type 14,
+        // NOT via messages.update. Handle them before the text check.
+        const editInfo = getEditInfo(msg);
+        if (editInfo) {
+          logger.debug({ chatJid, originalId: editInfo.originalId, newText: editInfo.newText.substring(0, 50) }, 'Edit event detected');
+          if (chatJid === config.groupJids.players) {
+            await editCollectedMessage(editInfo.originalId, editInfo.newText);
+          } else if (config.groupJids.test && chatJid === config.groupJids.test) {
+            editTestMessage(editInfo.originalId, editInfo.newText);
+          }
+          continue;
+        }
+
         const text = getMessageText(msg).trim();
         if (!text) continue;
 
