@@ -96,7 +96,7 @@ Supported commands:
 4. "set_laundry" — assign laundry duty to a named player. Must include a full name (2+ words). Examples: "כביסה דוד כהן", "תשים כביסה על יוסי לוי"
 5. "set_warmup_time" — change warmup time. Must include HH:MM. Examples: "חימום 20:30", "תשנה חימום ל-21:00"
 6. "set_start_time" — change start time. Must include HH:MM. Examples: "התחלה 21:00", "תשנה התחלה ל-21:30"
-7. "show_template" — show the current registration template. Examples: "תשלח תרשימה", "תראה רשימה", "שלח את הרשימה", "מה הרשימה", "תראה מצב"
+7. "show_template" — show/send/share/display the current registration list. Use this for ANY intent that means the admin wants to see or receive the current list, regardless of wording. Examples: "תשלח תרשימה", "תראה רשימה", "שלח את הרשימה", "מה הרשימה", "תראה מצב", "תשתף רשימה", "שתף רשימה", "תעדכן רשימה", "תן לי את הרשימה", "הצג רשימה", "מה המצב", "מי נרשם"
 8. "add_admin" — add a new admin. The message will @mention someone. Must include a name (2+ words). Examples: "תוסיף אדמין דוד כהן", "תעשה אותו אדמין"
 9. "remove_admin" — remove an admin. The message will @mention someone. Examples: "תוריד אדמין", "תוריד אותו מאדמין"
 10. "remove_player" — remove a player from the registration list. Can be by name, by role, or both. Examples:
