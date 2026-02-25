@@ -9,6 +9,11 @@ import {
   removeCollectedMessage,
   editCollectedMessage,
 } from '../bot/registration.js';
+import {
+  collectTestMessage,
+  editTestMessage,
+  removeTestMessage,
+} from '../bot/testRegistration.js';
 import { logger } from '../utils/logger.js';
 
 function getMentionedJids(msg: WAMessage, botJid: string, botLid?: string): string[] {
@@ -56,9 +61,9 @@ export function handleMessagesUpsert(sock: WASocket) {
           continue;
         }
 
-        // Group 3 (Test) routing — behaves like Group 1
+        // Group 3 (Test) routing — sandboxed registration test environment
         if (config.groupJids.test && chatJid === config.groupJids.test) {
-          await handleGroup1Message(sock, msg, text, senderJid, botJid, botLid);
+          await handleGroup3Message(sock, msg, text, senderJid, botJid, botLid);
           continue;
         }
       } catch (error) {
@@ -170,13 +175,40 @@ async function handleGroup2Message(
   await collectRegistrationMessage(msgId, senderJid, text);
 }
 
+async function handleGroup3Message(
+  sock: WASocket,
+  msg: WAMessage,
+  text: string,
+  senderJid: string,
+  botJid: string,
+  botLid?: string,
+): Promise<void> {
+  logger.info({ senderJid, text: text.substring(0, 50) }, 'Group 3 message received');
+
+  const botMentioned = isBotMentioned(msg, botJid, botLid);
+
+  // @bot mentions → still handle as admin commands (for manual control)
+  if (botMentioned) {
+    await handleGroup1Message(sock, msg, text, senderJid, botJid, botLid);
+    return;
+  }
+
+  // Non-@bot messages → collect into sandboxed test buffer
+  const msgId = msg.key.id || '';
+  collectTestMessage(sock, msgId, senderJid, text);
+}
+
 export function handleMessagesDelete() {
   return async (event: { keys: WAMessageKey[] } | { jid: string; all: true }) => {
     if ('all' in event) return;
 
     for (const key of event.keys) {
-      if (!key.id || key.remoteJid !== config.groupJids.players) continue;
-      await removeCollectedMessage(key.id);
+      if (!key.id) continue;
+      if (key.remoteJid === config.groupJids.players) {
+        await removeCollectedMessage(key.id);
+      } else if (config.groupJids.test && key.remoteJid === config.groupJids.test) {
+        removeTestMessage(key.id);
+      }
     }
   };
 }
@@ -185,7 +217,7 @@ export function handleMessagesUpdate() {
   return async (updates: WAMessageUpdate[]) => {
     for (const update of updates) {
       const key = update.key;
-      if (!key.id || key.remoteJid !== config.groupJids.players) continue;
+      if (!key.id) continue;
 
       const editedMsg = update.update?.message;
       if (!editedMsg) continue;
@@ -196,7 +228,11 @@ export function handleMessagesUpdate() {
         '';
       if (!newText) continue;
 
-      await editCollectedMessage(key.id, newText);
+      if (key.remoteJid === config.groupJids.players) {
+        await editCollectedMessage(key.id, newText);
+      } else if (config.groupJids.test && key.remoteJid === config.groupJids.test) {
+        editTestMessage(key.id, newText);
+      }
     }
   };
 }
