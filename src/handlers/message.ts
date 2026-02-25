@@ -9,11 +9,6 @@ import {
   removeCollectedMessage,
   editCollectedMessage,
 } from '../bot/registration.js';
-import {
-  collectTestMessage,
-  editTestMessage,
-  removeTestMessage,
-} from '../bot/testRegistration.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -70,8 +65,6 @@ export function handleMessagesUpsert(sock: WASocket) {
           logger.debug({ chatJid, originalId: editInfo.originalId, newText: editInfo.newText.substring(0, 50) }, 'Edit event detected');
           if (chatJid === config.groupJids.players) {
             await editCollectedMessage(editInfo.originalId, editInfo.newText);
-          } else if (config.groupJids.test && chatJid === config.groupJids.test) {
-            editTestMessage(editInfo.originalId, editInfo.newText);
           }
           continue;
         }
@@ -93,9 +86,9 @@ export function handleMessagesUpsert(sock: WASocket) {
           continue;
         }
 
-        // Group 3 (Test) routing — sandboxed registration test environment
+        // Group 3 (Test) routing — behaves like Group 1
         if (config.groupJids.test && chatJid === config.groupJids.test) {
-          await handleGroup3Message(sock, msg, text, senderJid, botJid, botLid);
+          await handleGroup1Message(sock, msg, text, senderJid, botJid, botLid);
           continue;
         }
       } catch (error) {
@@ -207,40 +200,13 @@ async function handleGroup2Message(
   await collectRegistrationMessage(msgId, senderJid, text);
 }
 
-async function handleGroup3Message(
-  sock: WASocket,
-  msg: WAMessage,
-  text: string,
-  senderJid: string,
-  botJid: string,
-  botLid?: string,
-): Promise<void> {
-  logger.info({ senderJid, text: text.substring(0, 50) }, 'Group 3 message received');
-
-  const botMentioned = isBotMentioned(msg, botJid, botLid);
-
-  // @bot mentions → still handle as admin commands (for manual control)
-  if (botMentioned) {
-    await handleGroup1Message(sock, msg, text, senderJid, botJid, botLid);
-    return;
-  }
-
-  // Non-@bot messages → collect into sandboxed test buffer
-  const msgId = msg.key.id || '';
-  collectTestMessage(sock, msgId, senderJid, text);
-}
-
 export function handleMessagesDelete() {
   return async (event: { keys: WAMessageKey[] } | { jid: string; all: true }) => {
     if ('all' in event) return;
 
     for (const key of event.keys) {
-      if (!key.id) continue;
-      if (key.remoteJid === config.groupJids.players) {
-        await removeCollectedMessage(key.id);
-      } else if (config.groupJids.test && key.remoteJid === config.groupJids.test) {
-        removeTestMessage(key.id);
-      }
+      if (!key.id || key.remoteJid !== config.groupJids.players) continue;
+      await removeCollectedMessage(key.id);
     }
   };
 }
@@ -249,7 +215,7 @@ export function handleMessagesUpdate() {
   return async (updates: WAMessageUpdate[]) => {
     for (const update of updates) {
       const key = update.key;
-      if (!key.id) continue;
+      if (!key.id || key.remoteJid !== config.groupJids.players) continue;
 
       const editedMsg = update.update?.message;
       if (!editedMsg) continue;
@@ -260,11 +226,7 @@ export function handleMessagesUpdate() {
         '';
       if (!newText) continue;
 
-      if (key.remoteJid === config.groupJids.players) {
-        await editCollectedMessage(key.id, newText);
-      } else if (config.groupJids.test && key.remoteJid === config.groupJids.test) {
-        editTestMessage(key.id, newText);
-      }
+      await editCollectedMessage(key.id, newText);
     }
   };
 }
