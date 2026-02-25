@@ -99,8 +99,8 @@ export function setupScheduler(getSock: () => WASocket): void {
     }
   }, { timezone: tz });
 
-  // Friday 12:03 - Process burst registrations (the big batch from 12:00-12:03)
-  cron.schedule('3 12 * * 5', async () => {
+  // Friday 12:05 - Process burst registrations (the big batch from 12:00-12:05)
+  cron.schedule('5 12 * * 5', async () => {
     try {
       const sock = getSock();
       await processCollectedMessages(sock);
@@ -111,13 +111,13 @@ export function setupScheduler(getSock: () => WASocket): void {
   }, { timezone: tz });
 
   // Every 30 minutes — process collected registration messages
-  // Runs on :03 and :33. Skips Friday before 12:03 (burst handles that).
-  cron.schedule('3,33 * * * *', async () => {
+  // Runs on :05 and :35. Skips Friday before 12:05 (burst handles that).
+  cron.schedule('5,35 * * * *', async () => {
     try {
       const template = await loadTemplate();
       if (!template.registrationOpen) return;
 
-      // Skip Friday 12:03 — handled by burst cron above
+      // Skip Friday 12:05 — handled by burst cron above
       const now = new Date();
       const israelNow = new Date(now.toLocaleString('en-US', { timeZone: tz }));
       if (israelNow.getDay() === 5 && israelNow.getHours() === 12 && israelNow.getMinutes() < 10) return;
