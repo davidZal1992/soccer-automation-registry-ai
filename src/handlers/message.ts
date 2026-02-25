@@ -42,7 +42,7 @@ export function handleMessagesUpsert(sock: WASocket) {
         const text = getMessageText(msg).trim();
         if (!text) continue;
 
-        logger.debug({ chatJid, senderJid, text: text.substring(0, 50), managersJid: config.groupJids.managers }, 'Incoming message');
+        logger.info({ chatJid, senderJid, text: text.substring(0, 50) }, 'Incoming message');
 
         // Group 1 (Managers) routing
         if (chatJid === config.groupJids.managers) {
