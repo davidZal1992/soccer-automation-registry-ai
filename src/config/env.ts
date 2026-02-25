@@ -4,6 +4,7 @@ interface Config {
   groupJids: {
     managers: string;
     players: string;
+    test?: string;
   };
   anthropicApiKey: string;
   initialAdminJid: string;
@@ -24,6 +25,7 @@ export const config: Config = {
   groupJids: {
     managers: process.env.GROUP_1_JID!,
     players: process.env.GROUP_2_JID!,
+    test: process.env.GROUP_3_JID,
   },
   anthropicApiKey: process.env.ANTHROPIC_API_KEY!,
   initialAdminJid: process.env.INITIAL_ADMIN_JID || '',

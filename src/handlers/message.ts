@@ -42,7 +42,7 @@ export function handleMessagesUpsert(sock: WASocket) {
         const text = getMessageText(msg).trim();
         if (!text) continue;
 
-        logger.info({ chatJid, senderJid, text: text.substring(0, 50) }, 'Incoming message');
+        logger.debug({ chatJid, senderJid, text: text.substring(0, 50) }, 'Incoming message');
 
         // Group 1 (Managers) routing
         if (chatJid === config.groupJids.managers) {
@@ -53,6 +53,12 @@ export function handleMessagesUpsert(sock: WASocket) {
         // Group 2 (Players) routing
         if (chatJid === config.groupJids.players) {
           await handleGroup2Message(sock, msg, text, senderJid, botJid, botLid);
+          continue;
+        }
+
+        // Group 3 (Test) routing — behaves like Group 1
+        if (config.groupJids.test && chatJid === config.groupJids.test) {
+          await handleGroup1Message(sock, msg, text, senderJid, botJid, botLid);
           continue;
         }
       } catch (error) {
