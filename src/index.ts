@@ -42,8 +42,20 @@ async function startSocket(): Promise<void> {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      logger.info('Scan QR code with WhatsApp');
-      import('qrcode-terminal').then(mod => mod.default.generate(qr, { small: true }));
+      const pairingPhone = process.env.PAIRING_PHONE_NUMBER;
+      if (pairingPhone) {
+        // Use pairing code instead of QR (works from datacenter IPs)
+        try {
+          const code = await sock.requestPairingCode(pairingPhone);
+          logger.info(`\n\n  *** PAIRING CODE: ${code} ***\n  Enter this in WhatsApp → Linked Devices → Link with phone number\n`);
+        } catch (err) {
+          logger.error({ err }, 'Failed to get pairing code, falling back to QR');
+          import('qrcode-terminal').then(mod => mod.default.generate(qr, { small: true }));
+        }
+      } else {
+        logger.info('Scan QR code with WhatsApp');
+        import('qrcode-terminal').then(mod => mod.default.generate(qr, { small: true }));
+      }
     }
 
     if (connection === 'close') {
