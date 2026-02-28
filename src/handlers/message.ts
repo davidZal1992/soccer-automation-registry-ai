@@ -8,6 +8,7 @@ import {
   collectRegistrationMessage,
   removeCollectedMessage,
   editCollectedMessage,
+  clearCollectedMessages,
 } from '../bot/registration.js';
 import { logger } from '../utils/logger.js';
 
@@ -129,6 +130,20 @@ async function handleGroup1Message(
 
   // Strip bot mention from text to get the command
   const commandText = text.replace(/@\d+/g, '').trim();
+
+  // Sleep / wake commands — handled before LLM to avoid unnecessary API calls
+  if (SLEEP_PATTERN.test(commandText)) {
+    await saveBotControl({ sleeping: true });
+    await clearCollectedMessages();
+    await sock.sendMessage(config.groupJids.managers, { text: 'בוט הולך לישון 😴' });
+    return;
+  }
+  if (WAKE_PATTERN.test(commandText)) {
+    await saveBotControl({ sleeping: false });
+    await sock.sendMessage(config.groupJids.managers, { text: 'בוט התעורר! 🌅' });
+    return;
+  }
+
   logger.info({ commandText }, 'Parsing admin command with LLM');
 
   // Extract mentioned JIDs (excluding the bot itself)
@@ -167,6 +182,7 @@ async function handleGroup2Message(
 
     if (SLEEP_PATTERN.test(commandText)) {
       await saveBotControl({ sleeping: true });
+      await clearCollectedMessages();
       await sock.sendMessage(config.groupJids.players, { text: 'הבוט הולך לישון 😴' });
       return;
     }

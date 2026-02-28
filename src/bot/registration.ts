@@ -1,5 +1,5 @@
 import type { WASocket, proto } from '@whiskeysockets/baileys';
-import { loadWeekly, saveWeekly, loadTemplate, saveTemplate } from './state.js';
+import { loadWeekly, saveWeekly, loadTemplate, saveTemplate, loadBotControl } from './state.js';
 import { renderTemplate } from './template.js';
 import { addPlayerToTemplate, removePlayerFromTemplate, promoteFromWaitingList } from './admin.js';
 import { parseRegistrationMessages } from './claude.js';
@@ -62,7 +62,20 @@ export async function editCollectedMessage(msgId: string, newText: string): Prom
   }
 }
 
+export async function clearCollectedMessages(): Promise<void> {
+  const weekly = await loadWeekly();
+  weekly.messagesCollected = [];
+  await saveWeekly(weekly);
+  logger.info('Cleared collected messages buffer (bot going to sleep)');
+}
+
 export async function processCollectedMessages(sock: WASocket): Promise<void> {
+  const botControl = await loadBotControl();
+  if (botControl.sleeping) {
+    logger.info('Skipping processCollectedMessages — bot is sleeping');
+    return;
+  }
+
   const weekly = await loadWeekly();
   if (weekly.messagesCollected.length === 0) return;
 
