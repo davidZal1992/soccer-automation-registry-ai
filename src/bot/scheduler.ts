@@ -62,13 +62,21 @@ export function setupScheduler(getSock: () => WASocket): void {
     }
   })();
 
-  // Friday 11:50 - Wake bot up
+  // Friday 11:50 - Wake bot up + remind admins with current template
   cron.schedule('50 11 * * 5', async () => {
     try {
       await saveBotControl({ sleeping: false });
       logger.info('Bot woke up automatically for Friday');
+
+      const sock = getSock();
+      const template = await loadTemplate();
+      const rendered = renderTemplate(template);
+      await sock.sendMessage(config.groupJids.managers, {
+        text: `10 דקות לרישום, הרשימה המעודכנת היא:\n\n${rendered}`,
+      });
+      logger.info('Sent 10-minute reminder with template to Group 1');
     } catch (error) {
-      logger.error({ error }, 'Failed to wake bot on Friday');
+      logger.error({ error }, 'Failed to wake bot or send Friday reminder');
     }
   }, { timezone: tz });
 
