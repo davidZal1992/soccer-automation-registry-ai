@@ -80,6 +80,21 @@ export function setupScheduler(getSock: () => WASocket): void {
     }
   }, { timezone: tz });
 
+  // Friday 11:55 - Warn admins if bot is still sleeping
+  cron.schedule('55 11 * * 5', async () => {
+    try {
+      const botControl = await loadBotControl();
+      if (!botControl.sleeping) return;
+      const sock = getSock();
+      await sock.sendMessage(config.groupJids.managers, {
+        text: 'תזכורת, כרגע אני ישן ולכן לא אבצע פתיחה של הקבוצה',
+      });
+      logger.info('Sent sleep warning to Group 1');
+    } catch (error) {
+      logger.error({ error }, 'Failed to send sleep warning');
+    }
+  }, { timezone: tz });
+
   // Friday 11:59 - Post template to Group 2
   cron.schedule('59 11 * * 5', async () => {
     try {
