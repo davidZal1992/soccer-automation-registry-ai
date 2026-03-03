@@ -134,6 +134,15 @@ export async function executeAdminCommand(
         await sock.sendMessage(chatJid, { text: 'צריך שם מלא (שם פרטי + משפחה) לציוד' });
         return;
       }
+      // Guard: admin cannot assign another admin as equipment duty
+      {
+        const admins = await loadAdmins();
+        const targetAdmin = admins.find(a => a.name === command.name);
+        if (targetAdmin && normalizeJid(targetAdmin.userId) !== normalizeJid(senderJid)) {
+          await sock.sendMessage(chatJid, { text: 'אי אפשר להגדיר אדמין אחר לציוד 🚫' });
+          return;
+        }
+      }
       // Remove equipment flag from previous holder
       for (const s of template.slots) {
         if (s?.isEquipment) s.isEquipment = false;
@@ -168,6 +177,15 @@ export async function executeAdminCommand(
       if (!isFullName(command.name)) {
         await sock.sendMessage(chatJid, { text: 'צריך שם מלא (שם פרטי + משפחה) לכביסה' });
         return;
+      }
+      // Guard: admin cannot assign another admin as laundry duty
+      {
+        const admins = await loadAdmins();
+        const targetAdmin = admins.find(a => a.name === command.name);
+        if (targetAdmin && normalizeJid(targetAdmin.userId) !== normalizeJid(senderJid)) {
+          await sock.sendMessage(chatJid, { text: 'אי אפשר להגדיר אדמין אחר לכביסה 🚫' });
+          return;
+        }
       }
       // Find player by name and move to slot 24
       let found = false;
