@@ -80,17 +80,6 @@ export function setupScheduler(getSock: () => WASocket): void {
     }
   }, { timezone: tz });
 
-  // Friday 11:55 - Health check to Group 1
-  cron.schedule('55 11 * * 5', async () => {
-    try {
-      const sock = getSock();
-      await sock.sendMessage(config.groupJids.managers, { text: '5 דק לפתיחה, אני מוכן!' });
-      logger.info('Sent Friday health check to Group 1');
-    } catch (error) {
-      logger.error({ error }, 'Failed to send Friday health check');
-    }
-  }, { timezone: tz });
-
   // Friday 11:59 - Post template to Group 2
   cron.schedule('59 11 * * 5', async () => {
     try {
