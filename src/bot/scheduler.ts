@@ -62,13 +62,23 @@ export function setupScheduler(getSock: () => WASocket): void {
     }
   })();
 
-  // Friday 11:50 - Wake bot up + remind admins with current template
+  // Friday 11:50 - Wake bot up (if awake: remind admins with template; if sleeping: warn admins)
   cron.schedule('50 11 * * 5', async () => {
     try {
+      const botControl = await loadBotControl();
+      const sock = getSock();
+
+      if (botControl.sleeping) {
+        await sock.sendMessage(config.groupJids.managers, {
+          text: 'תזכורת, כרגע אני ישן ולכן לא אבצע פתיחה של הקבוצה',
+        });
+        logger.info('Sent sleep warning to Group 1');
+        return;
+      }
+
       await saveBotControl({ sleeping: false });
       logger.info('Bot woke up automatically for Friday');
 
-      const sock = getSock();
       const template = await loadTemplate();
       const rendered = renderTemplate(template);
       await sock.sendMessage(config.groupJids.managers, {
@@ -76,22 +86,7 @@ export function setupScheduler(getSock: () => WASocket): void {
       });
       logger.info('Sent 10-minute reminder with template to Group 1');
     } catch (error) {
-      logger.error({ error }, 'Failed to wake bot or send Friday reminder');
-    }
-  }, { timezone: tz });
-
-  // Friday 11:55 - Warn admins if bot is still sleeping
-  cron.schedule('55 11 * * 5', async () => {
-    try {
-      const botControl = await loadBotControl();
-      if (!botControl.sleeping) return;
-      const sock = getSock();
-      await sock.sendMessage(config.groupJids.managers, {
-        text: 'תזכורת, כרגע אני ישן ולכן לא אבצע פתיחה של הקבוצה',
-      });
-      logger.info('Sent sleep warning to Group 1');
-    } catch (error) {
-      logger.error({ error }, 'Failed to send sleep warning');
+      logger.error({ error }, 'Failed to handle Friday 11:50 job');
     }
   }, { timezone: tz });
 
