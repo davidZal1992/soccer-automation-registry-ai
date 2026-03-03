@@ -139,7 +139,6 @@ export async function executeAdminCommand(
         const admins = await loadAdmins();
         const targetAdmin = admins.find(a => a.name === command.name);
         if (targetAdmin && normalizeJid(targetAdmin.userId) !== normalizeJid(senderJid)) {
-          await sock.sendMessage(chatJid, { text: 'אי אפשר להגדיר אדמין אחר לציוד 🚫' });
           return;
         }
       }
@@ -183,7 +182,6 @@ export async function executeAdminCommand(
         const admins = await loadAdmins();
         const targetAdmin = admins.find(a => a.name === command.name);
         if (targetAdmin && normalizeJid(targetAdmin.userId) !== normalizeJid(senderJid)) {
-          await sock.sendMessage(chatJid, { text: 'אי אפשר להגדיר אדמין אחר לכביסה 🚫' });
           return;
         }
       }
